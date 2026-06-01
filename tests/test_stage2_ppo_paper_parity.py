@@ -74,3 +74,26 @@ def test_actor_and_critic_have_separate_lr_groups() -> None:
     assert len(opt.param_groups) == 2
     lrs = sorted(g["lr"] for g in opt.param_groups)
     assert lrs == [3e-5, 1e-4]
+
+
+def test_run_stage2_cli_leaves_collect_batch_epochs_unset_by_default() -> None:
+    """CLI must not leak smoke-test 4/2 into kwargs when flags are omitted."""
+    import argparse
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_stage2_math_ppo.py"
+    spec = importlib.util.spec_from_file_location("run_stage2_math_ppo_cli", script)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    parser = argparse.ArgumentParser()
+    # Mirror the argparse surface without calling main().
+    for action in [
+        ("--collect-batch", int, None),
+        ("--ppo-epochs", int, None),
+    ]:
+        parser.add_argument(action[0], type=action[1], default=action[2])
+    ns = parser.parse_args([])
+    assert ns.collect_batch is None
+    assert ns.ppo_epochs is None

@@ -44,7 +44,9 @@ EXPECTED_API = {
 def test_import_does_not_load_torch_compile_or_gemma():
     """Importing the package must not eagerly load the Gemma backbone."""
     import sys
-    sys.modules.pop("cts", None)
+    for key in list(sys.modules):
+        if key == "cts" or key.startswith("cts."):
+            sys.modules.pop(key, None)
     cts = importlib.import_module("cts")
     assert hasattr(cts, "__version__")
     # The Gemma adapter is lazy: it's not pulled in by the top-level import.

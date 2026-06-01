@@ -1,0 +1,10 @@
+{
+  "modules": 19,
+  "mac_per_module": [
+    1.2e9, 1.2e9, 1.2e9, 1.2e9,
+    1.4e9, 1.4e9, 1.4e9, 1.4e9,
+    1.6e9, 1.6e9, 1.6e9, 1.6e9, 1.6e9, 1.6e9,
+    1.8e9, 1.8e9, 1.8e9, 1.8e9, 1.8e9
+  ],
+  "note": "Placeholder MACs; replace with measured values from Gemma E4B shapes."
+}

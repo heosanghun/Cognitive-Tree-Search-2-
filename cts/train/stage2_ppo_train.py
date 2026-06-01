@@ -23,11 +23,11 @@ from cts.critic.neuro_critic import NeuroCritic
 from cts.deq.transition import transition
 from cts.mcts.critic_reward import make_critic_reward_fn
 from cts.mcts.episode import default_transition_reward
-from cts.rewards.shaping import paper_reward
 from cts.model.gemma_loader import load_gemma4_e4b
 from cts.policy.meta_policy import MetaPolicy
 from cts.train.jsonl_iter import iter_jsonl
 from cts.train.ppo_core import compute_gae, ppo_clipped_loss, value_loss
+from cts.train.stage2_reward import stage2_rollout_reward
 from cts.types import RuntimeBudgetState
 from cts.utils.config import load_config
 from cts.utils.repro_seed import apply_global_seed
@@ -83,6 +83,15 @@ def run_stage2_math_ppo(
     # hardware can resume from the latest intermediate. Default is
     # 1000 -> 10 saves over a 10 000-step retrain. Set to 0 to disable.
     save_every: int = 1000,
+    # Optional path to a Stage-2 intermediate checkpoint
+    # (e.g. ``artifacts/stage2_meta_value.intermediate.pt``). When set,
+    # meta-policy / critic / value-head ``state_dict``s are loaded *after*
+    # they are constructed and the PPO loop starts at the persisted
+    # ``training_meta.step`` instead of 0. Optimiser (AdamW) state is
+    # intentionally not restored because the intermediate checkpoint does
+    # not carry it; the first dozens of resumed steps may show a small
+    # transient loss spike while AdamW moments re-warm.
+    resume_from: Optional[Path | str] = None,
 ) -> Dict[str, Any]:
     cfg: Dict[str, Any] = load_config(config_name)
     apply_global_seed()
@@ -183,6 +192,8 @@ def run_stage2_math_ppo(
     ent_coef = float(cfg.get("entropy_coef", 0.01))
     tau_budget = float(cfg.get("tau_flops_budget", 1e14))
     lambda_halt = float(cfg.get("act_halting_penalty", 0.05))
+    stage2_reward_mode = str(cfg.get("stage2_reward_mode", "auto"))
+    rollout_decode_tokens = int(cfg.get("stage2_rollout_decode_tokens", 1))
     gae_gamma = float(cfg.get("discount_gamma", 0.99))
     gae_lam = float(cfg.get("gae_lambda", 0.95))
     K_cfg = cfg.get("latent_tokens_K")
@@ -203,8 +214,49 @@ def run_stage2_math_ppo(
 
     history_loss: List[float] = []
     idx = 0
+    start_step = 0
 
-    for global_step in range(steps):
+    # Optional resume from a Stage-2 intermediate checkpoint. Loads the
+    # NeurIPS-snapshot canonical keys written by ``_save_stage2_checkpoint``
+    # and re-positions the PPO loop / JSONL cursor so a 10 000-step retrain
+    # that was interrupted at e.g. step 5000 picks up at step 5000 instead
+    # of restarting from 0. Optimiser state is intentionally not restored
+    # (the intermediate ckpt does not carry it).
+    if resume_from is not None:
+        rpath = Path(resume_from)
+        if not rpath.is_file():
+            raise FileNotFoundError(f"--resume-from path does not exist: {rpath}")
+        rck = _load_torch(rpath)
+        _meta_sd = rck.get("meta_policy_state_dict") or rck.get("meta")
+        _critic_sd = rck.get("critic_state_dict") or rck.get("critic_z")
+        _value_sd = rck.get("value_head_state_dict") or rck.get("value_head")
+        if _meta_sd is not None:
+            meta.load_state_dict(_meta_sd, strict=False)
+        if _critic_sd is not None:
+            critic_z.load_state_dict(_critic_sd, strict=False)
+        if _value_sd is not None:
+            value_head.load_state_dict(_value_sd, strict=False)
+        meta_block = rck.get("training_meta") or {}
+        start_step = int(meta_block.get("step", 0))
+        if start_step >= steps:
+            print(
+                f"[stage2] resume_from={rpath} already at step {start_step}/"
+                f"{steps}; nothing to do.",
+                flush=True,
+            )
+            return {"checkpoint": str(rpath), "steps": steps, "resumed_from_step": start_step}
+        # Preserve roughly the same data-ordering after resume so we do not
+        # silently re-train on the first ``start_step`` prompts again.
+        idx = (start_step * int(collect_batch)) % len(lines)
+        print(
+            f"[stage2] resumed from {rpath} at step {start_step}/{steps} "
+            f"(idx={idx}, collect_batch={collect_batch}, ppo_epochs={ppo_epochs}). "
+            "AdamW optimiser state was not restored; expect a brief loss-spike "
+            "while moments re-warm.",
+            flush=True,
+        )
+
+    for global_step in range(start_step, steps):
         batch_obs: List[torch.Tensor] = []
         batch_actions: List[int] = []
         batch_old_logp: List[float] = []
@@ -241,14 +293,21 @@ def run_stage2_math_ppo(
                 d=H,
                 broyden_max_iter=broyden_max_iter,
                 tau_flops_budget=tau_budget,
-                max_decode_tokens=1,
+                max_decode_tokens=rollout_decode_tokens,
             )
             if reward_fn is not None:
                 r = reward_fn(tr)
             else:
                 converged = tr.solver_stats.get("converged", False)
                 depth_T = tr.budget.terminal_depth if tr.budget else 1
-                r = paper_reward(correct=converged, terminal_depth=depth_T, lambda_halt=lambda_halt)
+                r = stage2_rollout_reward(
+                    row,
+                    child_text=tr.child_text,
+                    converged=converged,
+                    terminal_depth=depth_T,
+                    lambda_halt=lambda_halt,
+                    reward_mode=stage2_reward_mode,
+                )
 
             zs = tr.z_star_child
             if zs is not None:
@@ -408,27 +467,30 @@ def _save_stage2_checkpoint(
     _critic_sd = critic_z.state_dict()
     _value_sd = value_head.state_dict()
     paper_faithful_p0_4 = bool(int(collect_batch) == 64 and int(ppo_epochs) == 4)
-    torch.save(
-        {
-            "meta_policy_state_dict": _meta_sd,
-            "critic_state_dict": _critic_sd,
-            "value_head_state_dict": _value_sd,
-            "meta": _meta_sd,
-            "critic_z": _critic_sd,
-            "value_head": _value_sd,
-            "config_name": config_name,
-            "W": W,
-            "text_dim": H,
-            "training_meta": {
-                "step": int(step),
-                "total_steps": int(total_steps),
-                "collect_batch": int(collect_batch),
-                "ppo_epochs": int(ppo_epochs),
-                "actor_lr": float(actor_lr),
-                "critic_lr": float(critic_lr),
-                "lambda_halt": float(lambda_halt),
-                "paper_faithful_p0_4": paper_faithful_p0_4,
-            },
+    payload = {
+        "meta_policy_state_dict": _meta_sd,
+        "critic_state_dict": _critic_sd,
+        "value_head_state_dict": _value_sd,
+        "meta": _meta_sd,
+        "critic_z": _critic_sd,
+        "value_head": _value_sd,
+        "config_name": config_name,
+        "W": W,
+        "text_dim": H,
+        "training_meta": {
+            "step": int(step),
+            "total_steps": int(total_steps),
+            "collect_batch": int(collect_batch),
+            "ppo_epochs": int(ppo_epochs),
+            "actor_lr": float(actor_lr),
+            "critic_lr": float(critic_lr),
+            "lambda_halt": float(lambda_halt),
+            "paper_faithful_p0_4": paper_faithful_p0_4,
         },
-        path,
-    )
+    }
+    # Write to a temp file then atomically replace so a power loss mid-save
+    # does not leave a truncated .pt (running processes keep their in-memory
+    # copy of this function until restart).
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    torch.save(payload, tmp)
+    os.replace(tmp, path)

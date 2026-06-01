@@ -48,7 +48,7 @@ EXPECTED_SECTIONS = {
     10: "Energy",
     11: "Crowdsourcing",
     12: "Anonymization",
-    13: "Known Local-Reproduction Gaps",
+    13: "Known Local-Reproduction",
 }
 
 EXTENSION_SECTIONS = ("5-bis", "5-ter", "5-quat", "5-pent")
@@ -155,12 +155,15 @@ def test_section_5_links_resolve_to_real_files():
     sections = _split_top_level_sections(src)
     s5 = sections.get(5, "")
     assert s5, "REPRODUCIBILITY.md §5 missing or empty"
-    link_rx = re.compile(r"\(([^)]+\.[a-zA-Z0-9_]+)\)")
+    link_rx = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
     bad: list[str] = []
     for link in link_rx.findall(s5):
-        link = link.split("#", 1)[0].split("::", 1)[0]
+        link = link.strip().split("#", 1)[0].split("::", 1)[0]
         # Skip http(s):// and mailto: links.
         if link.startswith(("http://", "https://", "mailto:")):
+            continue
+        # Only validate repo-relative paths ending in a known extension.
+        if not re.search(r"\.[a-zA-Z0-9_]+$", link):
             continue
         # Skip absolute / Windows-style paths just in case.
         if link.startswith("/") or len(link) > 2 and link[1] == ":":

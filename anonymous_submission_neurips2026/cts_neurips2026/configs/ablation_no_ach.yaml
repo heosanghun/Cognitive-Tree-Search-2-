@@ -1,0 +1,4 @@
+# Ablation: disable sparse ACh routing (force dense module mix)
+# Merged with default.yaml by cts.utils.config.load_config
+routing_mode: dense
+ablation_name: no_ach

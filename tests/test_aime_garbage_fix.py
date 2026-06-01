@@ -72,22 +72,18 @@ def test_cts_dispatcher_treats_non_numeric_math_pred_as_garbage():
     """Fix A: math benchmark CTS dispatchers must fall back when pred is non-numeric."""
     src = Path(__file__).resolve().parents[1] / "scripts" / "run_cts_eval_full.py"
     text = src.read_text(encoding="utf-8")
-    # The garbage detection check must reference all four math slots.
+    # Garbage detection was factored into cts/eval/garbage_filter.py (D+8).
+    assert "from cts.eval.garbage_filter import is_garbage_math" in text
+    assert "is_garbage_math(benchmark," in text
     for slot in ("math500", "gsm8k", "aime", "aime_90"):
         assert f'"{slot}"' in text, f"slot ``{slot}`` missing from dispatcher"
-    # The garbage condition must check that pred does NOT start with a digit.
-    pat = re.compile(
-        r"_is_garbage_math\s*=\s*\(\s*\n\s*benchmark\s+in\s+\(\s*\"math500\"",
-        re.DOTALL,
+    # Both DEQ-only and CTS paths must consult the helper.
+    assert text.count("is_garbage_math(benchmark,") >= 2, (
+        "DEQ-only and CTS dispatchers must both call is_garbage_math()"
     )
-    assert pat.search(text), (
-        "Garbage-detection condition must be named _is_garbage_math and "
-        "gate on benchmark in {math500, gsm8k, aime, aime_90}."
-    )
-    # The fallback condition must include _is_garbage_math.
-    assert "or _is_garbage_math" in text, (
-        "Existing CTS-fallback if-condition must include the new "
-        "_is_garbage_math signal so non-numeric outputs route to greedy."
+    # Fallback branches must gate on the garbage signal.
+    assert "_is_garbage" in text, (
+        "Dispatcher fallback if-condition must include the garbage signal."
     )
 
 

@@ -1,0 +1,16 @@
+# Autopilot Phase-4: paper-parity Stage 2 + answer-oracle reward (Eq. 5).
+# Merged over default.yaml. Requires data/stage2/math_train_prompts_5000.jsonl
+# with ``solution`` field (download_experiment_data.py).
+
+paper_protocol_label: autopilot_answer_s2_v1
+stage1_max_steps: 5000
+stage2_total_ppo_steps: 10000
+eval_deterministic: true
+cts_deq_map_mode: parallel
+stage2_parallel_map: true
+broyden_max_iter: 30
+stage2_reward_mode: answer
+stage2_rollout_decode_tokens: 32
+ppo_collect_batch: 64
+ppo_epochs: 4
+stage1_lr: 1.0e-4

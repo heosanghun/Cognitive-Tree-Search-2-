@@ -141,28 +141,50 @@ the pending paper-backbone re-measurement is a known caveat).
 
 ---
 
-## 5. Coconut, Recurrent Depth, BoN@13, Bandit baselines: not implemented
+## 5. Coconut, Recurrent Depth, BoN@13, Bandit baselines: not paper-faithful
 
-**Limitation**: Of the 14 Table 2 baselines, the following 4 are
-*not implemented* in our codebase:
+**Limitation**: Of the 14 paper Table 2 baselines, the following 4
+are *not paper-faithful* in our codebase &mdash; **2 are missing
+outright** (no dispatcher entry) and **2 ship as proxies with
+documented gaps** (dispatcher entry exists but does not match the
+paper protocol):
 
-- COCONUT (Gemma-4-E4B reproduction) &mdash; paper Table 2 row 6
-- Recurrent Depth (Gemma-4-E4B) &mdash; paper Table 2 row 7
-- BoN@13 (Critic-best argmax) &mdash; paper Table 2 row 10
-- UCB1 Bandit (20-bin &nu;, c=&radic;2) &mdash; paper Table 2 row 11
+- **Missing (no dispatcher entry):**
+  - COCONUT (Gemma-4-E4B reproduction) &mdash; paper Table 2 row 6
+  - Recurrent Depth (Gemma-4-E4B) &mdash; paper Table 2 row 7
+- **Proxy (dispatcher entry exists, gap explicitly named):**
+  - BoN@13 (Critic-best argmax) &mdash; paper Table 2 row 10:
+    selector uses *longest-well-formed-chain* in place of
+    Neuro-Critic V<sub>&psi;</sub> scoring
+  - UCB1 Bandit (20-bin &nu;, c=&radic;2) &mdash; paper Table 2 row 11:
+    routed through `cts_full_episode` with `nu_config_mode="1nu"`
+    (only &nu;<sub>expl</sub> live) instead of a dedicated 20-arm
+    UCB1 module
 
 **What we have done**:
 
-- Disclosed the missing rows explicitly in
+- Disclosed the per-row status of all 14 paper Table 2 baselines
+  explicitly in
   [`results/table2/PAPER_VS_LOCAL.md`](results/table2/PAPER_VS_LOCAL.md)
-  cross-reference index, with a per-method column for "&#10060; missing".
-- The 8 implemented baselines are in
+  &sect;"Table 2 baseline implementation status" &mdash; a 14-row
+  per-method table that splits the 14 rows into **10 &#9989;
+  paper-faithful** (rows 1-5, 8-9, 12-14) + **2 &#9888;&#65039; proxy
+  with documented gap** (rows 10-11) + **2 &#10060; missing** (rows
+  6-7).
+- The 12 wired dispatcher paths (10 paper-faithful + 2 proxy) are in
   [`scripts/run_cts_eval_full.py`](scripts/run_cts_eval_full.py)
   (`_run_cts_on_problems`) and verified by
-  `tests/test_baseline_dispatchers.py`.
+  [`tests/test_baseline_dispatchers.py`](tests/test_baseline_dispatchers.py).
+  The 2 proxy entries are additionally documented at the dispatcher
+  call-site (inline comments at the `bon_13` and `bandit_ucb1`
+  branches) and in [`CHANGELOG.md`](CHANGELOG.md) D1 P1
+  baseline-dispatcher sweep.
 
-**What we do *not* claim**: We do not claim the four missing
-baselines are reproducible. They will land at camera-ready.
+**What we do *not* claim**: We do not claim the 2 missing baselines
+or the 2 proxy baselines are paper-faithful. The 2 missing rows
+will land at camera-ready as new dispatcher entries; the 2 proxy
+rows will land at camera-ready as paper-faithful upgrades of their
+existing dispatcher entries.
 
 ---
 
@@ -202,19 +224,22 @@ not fully integrated into the headline pipeline:
 
 | Component | Status | Reference |
 |:---|:---|:---|
-| Hybrid KV-Assisted Acceleration | reference, plumbing in `cts/inference/kv_assist.py` | [`README.md`](README.md) &sect;Implementation Status |
-| Triton fused PUCT kernel | reference, falls back to PyTorch on non-Linux | [`cts/triton/`](cts/triton/) |
-| Jacobian Inheritance threading | reference, single-thread default | [`cts/deq/jacobian_inheritance.py`](cts/deq/jacobian_inheritance.py) |
+| Hybrid KV-Assisted Acceleration | decision-plumbed in `cts/mcts/hybrid_kv.py`; full inference path is paper-only | [`cts/mcts/hybrid_kv.py`](cts/mcts/hybrid_kv.py), [`README.md`](README.md) &sect;Implementation Status |
+| Triton fused PUCT kernel | sparse-MoE Triton parity in `cts/routing/sparse_moe_triton.py`; standalone `cts/triton/` package is paper-only | [`cts/routing/sparse_moe_triton.py`](cts/routing/sparse_moe_triton.py), [`tests/test_routing_triton_ref.py`](tests/test_routing_triton_ref.py) |
+| Jacobian Inheritance threading | paper-only (file path placeholder; not shipped &mdash; described in paper for completeness, single-thread default in code) | camera-ready |
 | FAISS LRU cache | not implemented; flat IVF-PQ in use | camera-ready |
 | Energy auto-reporting | not implemented; manual nvidia-smi snapshot | camera-ready |
 | Module count ablation (paper App. K) | not implemented | camera-ready |
 | Qwen2.5-7B Table 18 transfer | not measured locally; CTS scaffold coupling on the paper backbone is the camera-ready target | camera-ready |
 
 **What we do *not* claim**: We do not claim these reference
-components reproduce the paper's headline numbers. Their wiring +
-unit tests are present so a reviewer can read the code path; the
-*end-to-end* timing / accuracy claims for each will land at
-camera-ready.
+components reproduce the paper's headline numbers. Where a code
+file is shipped (Hybrid KV decision plumbing, Triton sparse-MoE
+parity), the wiring + unit tests are present so a reviewer can
+read the code path; the *end-to-end* timing / accuracy claims for
+each will land at camera-ready. Where a row is marked "paper-only"
+or "not implemented", no shipped file is expected and the entry is
+disclosed for completeness against the paper.
 
 ---
 
@@ -285,4 +310,177 @@ entirely. Full incident write-up in
 
 ---
 
-*Last refreshed: 2026-04-29.*
+## 11. Stage 2 training-data definition (paper §6 wording vs. shipped JSONL)
+
+**Limitation**: Paper &sect;6 (Training) summarises the Stage 2 PPO
+prompt pool as *"5,000 MATH/AIME prompts (AIME 2019&ndash;2023;
+2024&ndash;2026 reserved for evaluation)"*. The shipped data
+directory makes the precise membership of that 5,000-prompt pool
+auditable, and a reviewer reading the paragraph in isolation could
+reasonably misread it as "5,000 AIME problems".
+
+**What the shipped pool actually contains** (verifiable from
+[`scripts/download_experiment_data.py`](scripts/download_experiment_data.py)
+and `configs/data_paths.yaml`):
+
+- **5,000 MATH-train prompts** &mdash; the primary Stage 2 PPO pool
+  (`data/stage2/math_train_prompts_5000.jsonl`), built by streaming
+  the `EleutherAI/hendrycks_math` train splits across all seven
+  subjects (algebra, counting&amp;probability, geometry,
+  intermediate algebra, number theory, prealgebra, precalculus).
+  This is the file that `cts/train/stage2_ppo_train.py` iterates
+  over with `collect_batch = 64` for 10,000 PPO steps.
+- **150 AIME 2019&ndash;2023 problems** &mdash; an auxiliary pool kept
+  exclusively for the train/test contamination screen against the
+  AIME 2026 / AIME 2024+2025+2026 evaluation sets
+  (`data/aime/train_2019_2023.jsonl`, used only by
+  [`scripts/run_contamination_screen.py`](scripts/run_contamination_screen.py)).
+
+**What we have done**:
+
+- Documented the file-by-file mapping in
+  [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) &sect;6 (datasets) and
+  &sect;13 row 4 so the paper phrase and the shipped JSONLs can be
+  cross-referenced without grep.
+- Cross-referenced the contamination evidence in
+  [`results/contamination/aime_screen.md`](results/contamination/aime_screen.md)
+  (30-problem AIME 2026, `LEXICAL_OVERLAP_ONLY`, MinHash clean) and
+  [`results/contamination/aime_screen_90.md`](results/contamination/aime_screen_90.md)
+  (90-problem extended AIME).
+
+**What we do *not* claim**: We do not claim the 5,000 Stage 2
+prompts are AIME-only competition problems. The pool is the MATH
+train split with the AIME 2019&ndash;2023 set held out for
+contamination screening; the paper's phrasing collapses both pools
+under the "MATH/AIME" umbrella, and this section is the
+reviewer-facing breakdown of what each JSONL actually holds.
+
+---
+
+## 12. Contamination-screen normalisation (paper App. P numbers vs. shipped detector)
+
+**Limitation**: Paper &sect;7.1 reports
+*"AIME 2026 contamination: BM25 &lt; 0.12, MinHash Jaccard &lt; 0.10
+(Appendix P)"*. The shipped detector
+([`cts/data/contamination_screen.py`](cts/data/contamination_screen.py))
+emits a **self-normalised BM25** so an exact duplicate maps to 1.0
+and an unrelated pair maps to ~0.0; under this normalisation the
+local AIME 2026 screen records `max = 0.5673`, `mean = 0.3276`
+(see [`results/contamination/aime_screen.md`](results/contamination/aime_screen.md)).
+The two numbers are **not on the same scale** and should not be
+compared directly &mdash; the shipped value is a similarity ratio in
+`[0, 1]`, while the paper's raw BM25 score is in the un-normalised
+range that BM25 outputs natively.
+
+**What we have done**:
+
+- Both detectors (BM25 self-normalised + MinHash Jaccard) agree on
+  the qualitative verdict: **0 MinHash near-duplicates** at the
+  Jaccard &ge; 0.8 threshold on both the 30-problem AIME 2026 set
+  and the 90-problem AIME 2024+2025+2026 extended set. MinHash is
+  the actual near-duplicate gate; BM25 flags surface for human
+  review as *topical-vocabulary overlap*.
+- The six BM25-flagged pairs in `aime_screen_90.md` are pasted in
+  full text so a reviewer can verify by eye that each pair is a
+  *different problem* sharing common math vocabulary (triangle
+  geometry, prime/divisor language, cyclic-group notation), not a
+  near-duplicate.
+
+**What we do *not* claim**: We do not claim the shipped
+self-normalised BM25 maxima (0.57 / 0.64) are numerically equal to
+the App. P raw-BM25 figure (&lt; 0.12). The two are different
+normalisations of the same family of detectors; the
+*near-duplicate* verdict (MinHash Jaccard clean on every test
+problem) is what gates the AIME headline number and that verdict
+matches both the paper and the shipped reports.
+
+---
+
+## 13. Table 2 ARC column = ARC-Challenge text proxy (paper ARC-AGI-Text private)
+
+**Limitation**: Paper Table 2 reports an ARC column for every
+method. The headline reference set (ARC-AGI-Text private split) is
+not publicly released, so any reviewer attempting to refresh the
+ARC column locally is forced onto a proxy benchmark. We use **AI2
+ARC-Challenge (text MCQ, 1172 problems)** as the local stand-in;
+see &sect;3 above for the full proxy disclosure.
+
+**What we have done**:
+
+- Surfaced the same proxy note in the per-method index
+  [`results/table2/PAPER_VS_LOCAL.md`](results/table2/PAPER_VS_LOCAL.md)
+  &sect;"Anomalous local cells" so a reviewer browsing the Table 2
+  side-by-side never sees the local 80.0 % number without the
+  proxy-substitution caveat one line above.
+- Made `cts/eval/arc_agi_text.py` data-format agnostic, so a
+  reviewer with a serialised fchollet/ARC-AGI dump can swap it in
+  without touching the dispatcher.
+
+**What we do *not* claim**: The Table 2 ARC column header should be
+read as *"ARC-AGI-Text (paper) / ARC-Challenge text (local proxy)"*
+&mdash; the two are not the same benchmark and the relative
+ordering of methods is what carries over, not the absolute
+percentage.
+
+---
+
+## 14. Stage 2 "500-prompt validation" (paper §6 mention)
+
+**Limitation**: Paper &sect;6 mentions a *500-prompt validation*
+slice alongside the 5,000 Stage 2 PPO prompts. The shipped Stage 2
+trainer (`cts/train/stage2_ppo_train.py`) does **not** carve a
+separate validation loop out of that pool today; the held-out
+validation signal is reported via the *post-Stage-2 evaluation
+pipeline* (`scripts/run_post_stage2_pipeline.py`) on the actual
+benchmark splits (MATH-500, GSM8K, AIME 2026, AIME 24+25+26)
+rather than via an in-loop validation step.
+
+**What we have done**:
+
+- Documented the post-Stage-2 evaluation pathway in
+  [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) &sect;9 (Table 17 recipe)
+  and the partial-save snapshot behaviour referenced from
+  &sect;5-ter.
+- Emit intermediate Stage 2 checkpoints every `save_every` steps
+  (default 1000) so a reviewer can run any of the benchmark-side
+  evaluators against an in-flight ckpt instead of waiting for the
+  full 10k-step retrain.
+
+**What we do *not* claim**: We do not claim an in-loop 500-prompt
+validation curve. The validation signal as shipped is benchmark-
+split accuracy at the intermediate / final checkpoint, which is the
+operationally honest interpretation of paper &sect;6's wording.
+
+---
+
+## 15. Stage 2 PPO reward proxy when JSONL lacks gold solutions
+
+**Limitation**: Paper Eq.(5) defines
+R<sub>total</sub> = 1{correct answer} &minus; &lambda;<sub>halt</sub> &middot; T.
+The Stage-2 JSONL pool shipped before 2026-05-19 carried **prompts only**
+(no ``solution`` / ``answer`` field). In that regime the default
+``stage2_reward_mode: auto`` path in ``cts/train/stage2_reward.py``
+falls back to a **DEQ convergence proxy**
+(``solver_stats['converged']``) because no oracle is available on disk.
+The **in-flight 10k-step retrain** (started 2026-05-17) therefore
+optimised the meta-policy against convergence, not graded correctness.
+
+**What we have done**:
+
+- Factored reward logic into ``cts/train/stage2_reward.py`` with three
+  explicit modes: ``auto`` | ``answer`` | ``converged``.
+- Updated ``scripts/download_experiment_data.py`` to persist
+  ``solution`` from ``EleutherAI/hendrycks_math`` for **future**
+  re-downloads.
+- Added ``stage2_rollout_decode_tokens`` (default ``1`` for backward
+  compatibility) and documented that answer-based grading needs
+  ``>= 32`` tokens when gold is present.
+
+**What we do *not* claim**: We do not claim the current on-disk
+10k-step checkpoint was trained with answer-oracle Eq.(5) unless the
+operator re-downloads Stage-2 JSONL (with ``solution``), sets
+``stage2_rollout_decode_tokens >= 32``, and re-runs Stage 2.
+
+---
+
+*Last refreshed: 2026-05-19.*

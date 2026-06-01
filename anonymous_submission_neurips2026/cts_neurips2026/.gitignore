@@ -1,0 +1,138 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+# Re-affirm pycache exclusion under cts/data/** (since the data sub-package
+# whitelist `!cts/data/**` below would otherwise re-include it).
+cts/**/__pycache__/
+cts/**/*.py[cod]
+
+# Hugging Face / model weights (never commit)
+.hf_cache/
+**/.cache/huggingface/
+*.safetensors
+gemma-4-E4B*/
+gemma-3*/
+
+# Local experiment outputs & checkpoints
+artifacts/
+data/
+# But keep the cts.data Python sub-package (paper §7.1 contamination screen
+# helpers). The blanket `data/` rule above otherwise hides this code module
+# and makes the anonymous ZIP raise ImportError on first import.
+!cts/data/
+!cts/data/**
+# Re-ignore Python build artefacts under cts/data/** (the broad `!cts/data/**`
+# above would otherwise un-ignore them).
+cts/data/**/__pycache__/
+cts/data/**/*.py[cod]
+*.pt
+*.pth
+*.ckpt
+*.bin
+
+# Secrets
+.env
+.env.*
+*.pem
+
+# Local scratch logs (cloud GPU wrappers, shell-wrapper temp output)
+.qwen*_local.log
+.runpod_*.log
+*_token.txt
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build artifacts
+anonymous_submission_*.zip
+*.zip
+# Exception: the canonical NeurIPS 2026 submission ZIP is committed so
+# reviewers / co-authors can download it directly from origin/main
+# without rebuilding. The build script (scripts/make_anonymous_submission.py)
+# is deterministic, so this is just a convenience copy of a regenerable
+# artifact, not an authoritative source.
+!anonymous_submission_neurips2026.zip
+
+# Local experiment results (regenerable via scripts/run_cts_eval_full.py)
+results/_smoke*/
+results/table2_re*/
+results/local_gemma4/
+results/local_gemma4_partial*/
+results/local_gemma4_plan_*/
+results/local_gemma4_*/
+
+# Local IDE / chat-export artifacts (dev notes — not part of release)
+cursor_*.md
+.cursor/
+terminals/
+
+# Internal development docs (kept out of public release; reviewers should rely on README + paper)
+doc/
+
+# Paper PDFs (double-blind review — never include in public repo)
+*.pdf
+.commit_msg.tmp
+
+# === Author-facing planning / triage docs (NEVER commit to public repo) ===
+# These intentionally cite the personal GitHub handle, local Windows paths,
+# and unresolved-issue lists.  Reviewers should only ever see the curated
+# public material in README.md, REPRODUCIBILITY.md, REVIEWER_FAQ.md, and
+# CHANGELOG.md.  Mirroring scripts/make_anonymous_submission.py EXCLUDE_GLOBS.
+SUBMISSION_GUIDE_D12.md
+SUBMISSION_GUIDE_*.md
+NEXT_TASKS_PRIORITIZED.md
+NEXT_TASKS_*.md
+PAPER_VS_LOCAL_FINAL.md
+PAPER_VS_LOCAL_INTUITIVE.md
+PAPER_CONSISTENCY_AUDIT.md
+ROOT_CAUSE_ANALYSIS.md
+EXPERIMENTAL_RESULTS.md
+EXPERIMENTS.md
+results/EXPERIMENTS.md
+PROGRESS_REPORT_*.md
+OPENREVIEW_RESPONSE_PREP.md
+
+# === Anonymization tooling (the thing that DETECTS leaks must not itself
+# leak the patterns to a public repo)
+.git_backup_pre_anonymize/
+.mailmap_anonymize
+_filter_repo_callback.py
+scripts/_audit_anon_zip.py
+scripts/_filter_repo_*.py
+scripts/_diag_*.py
+
+# === Local-only large benchmarks / runs (regenerable on reviewer side) ===
+results/p0_quick_*/
+results/table2_re*/
+results/_smoke*/
+results/preflight_*/
+results/smoke_preflight/
+
+# Post-Stage-2 pipeline produces both summary files (small,
+# reviewer-relevant) and bulky raw eval outputs. Drop only the bulky
+# subdirs so that pipeline_status.json + table19/nu_stats.md remain
+# trackable after the auto-pipeline completes.
+results/post_stage2_*/table2/
+results/post_stage2_*/table17/
+results/post_stage2_*/nu_traces/
+logs/
+
+# D12 sanity verdict artefacts (regenerated on every run)
+results/d12_verdict.json
+results/d12_verdict.md
+results/post_stage2_D11/
+results/reviewer_walkthrough.html
+results/reviewer_audit.json

@@ -1,0 +1,19 @@
+CTS local environment snapshot (auto-style; regenerate after hardware changes)
+Date: 2026-04-09
+
+GPU (nvidia-smi):
+- NVIDIA GeForce RTX 4090, 24564 MiB total (24GB class — matches internal plan: RTX 4090 target)
+- Driver 581.x, CUDA 13.0 (driver); PyTorch built with CUDA 11.8 (torch.version.cuda)
+
+CPU:
+- 13th Gen Intel Core i7-13700KF, 16 cores / 24 threads
+
+RAM:
+- ~32 GB system RAM
+
+Disk (representative):
+- D: ~1.69 TB free (repo on D:)
+
+Notes:
+- Table 1 numbers in the paper for CTS VRAM (~16.5–16.7 GB) refer to full Gemma-scale runs at high depth, not MockTinyBackbone.
+- Mock profile CSV in artifacts/ measures the scaffold; compare protocols, not absolute GB to paper without full model run.

@@ -1,9 +1,117 @@
-﻿# Changelog &mdash; Cognitive Tree Search (CTS)
+# Changelog &mdash; Cognitive Tree Search (CTS)
 
 All notable changes to the **NeurIPS 2026 submission codebase** are documented
 here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is informal during the review window (each `[unreleased]` block is a
 batch of commits), and the first numbered release will be cut on camera-ready.
+
+---
+
+## [unreleased] — May 19: CPU-safe baseline wiring (background Stage 2 unaffected)
+
+While the 10k-step Stage 2 PPO retrain runs in the background, the
+following **CPU-only / next-run** improvements landed without touching
+the in-flight training process:
+
+### Added
+
+- `cts/train/stage2_reward.py` — paper Eq.(5) reward with
+  `auto | answer | converged` modes; `LIMITATIONS.md` §15 disclosure.
+- `cts/eval/ft_nt.py` — Stage-1 LoRA + native-think FT-NT predictor builder.
+- `cts/eval/cts_eval_stack.py` — shared Stage-1/2 eval stack loader.
+- `cts/baselines/ucb1_nu.py` — 20-arm UCB1 bandit over `nu_expl`.
+- `cts/baselines/bon_critic.py` — BoN@13 Neuro-Critic selection helper.
+- `cts/mcts/hybrid_kv.py::capture_backbone_kv` — §7.7 KV HIT skeleton hook.
+- `tests/test_stage2_reward.py`, `tests/test_baselines_cpu.py`,
+  `tests/test_nu_expl_override.py`.
+
+### Changed
+
+- `scripts/run_cts_eval_full.py` — **FT-NT** loads Stage-1 LoRA;
+  **BoN@13** uses Neuro-Critic scoring; **bandit_ucb1** runs UCB1 +
+  `nu_expl_override` (no longer a 1ν proxy).
+- `scripts/run_stage2_math_ppo.py` — CLI `collect_batch` / `ppo_epochs`
+  default to `None` so YAML paper-parity (64/4) applies when omitted.
+- `cts/train/stage2_ppo_train.py` — atomic checkpoint save (`.tmp` →
+  `os.replace`); wires `stage2_rollout_reward`.
+- `cts/mcts/cts_episode.py` — optional `nu_expl_override` kwarg.
+- `cts/eval/gemma_predict.py` — `temperature` / `do_sample` kwargs.
+- `scripts/download_experiment_data.py` — Stage-2 JSONL now includes
+  `solution` for future answer-oracle PPO re-runs.
+- `OPENREVIEW_RESPONSE_PREP.md` — R7 (proxy reward) + post-S2 placeholder table.
+
+### Verified
+
+- `pytest -m "not slow"`: **553 passed** (2026-05-19).
+- `scripts/_reviewer_local_audit.py`: **57/57 PASS**.
+- `scripts/run_contamination_screen.py`: **WARN** (lexical overlap only).
+- `scripts/make_anonymous_submission.py`: zip rebuilt (**264 files, 1.9 MB**).
+
+---
+
+## [unreleased] &mdash; D+8 May 15: paper ↔ code ↔ local reconciliation pass (PDF-cross-reference audit)
+
+A documentation-only consistency sweep after a side-by-side
+reading of the submitted PDF (`doc/Cognitive_Tree_Search__...pdf`)
+against the shipped repository. **No training code, no checkpoint,
+and no benchmark dispatcher was modified.** All edits live in
+reviewer-facing Markdown to make six previously-implicit reading
+gaps explicit:
+
+### Changed (documentation-only)
+
+- `MODEL_CARD.md` &sect;1 &mdash; Stage 1 learning-rate row now
+  states the current default (`stage1_lr: 1.0e-4`, paper-aligned)
+  and marks the older `3e-5` figure as a *pre-P0-3 smoke-test*
+  reference, so the model card no longer contradicts
+  `configs/default.yaml`.
+- `LIMITATIONS.md` &mdash; added **&sect;11 (Stage 2 training-data
+  definition)**, **&sect;12 (contamination-screen normalisation,
+  paper App. P vs. shipped detector)**, **&sect;13 (Table 2 ARC
+  column = ARC-Challenge text proxy)**, **&sect;14 (Stage 2
+  "500-prompt validation" wording)**. Each new section keeps the
+  Limitations document's four-block structure (Limitation / What we
+  have done / What we do *not* claim / cross-reference) so reviewers
+  can scan the additions the same way as the existing &sect;1-&sect;10.
+- `REPRODUCIBILITY.md` &mdash; (a) added a dedicated *MATH-train
+  (5,000 prompts, paper &sect;6 primary)* row to &sect;6 (datasets)
+  separating the hendrycks_math Stage 2 PPO pool from the 150-problem
+  AIME 2019-2023 contamination-screen auxiliary pool; (b) added a
+  new **&sect;5-quart** block explaining the post-Stage-2 evaluation
+  pipeline as the operational interpretation of paper &sect;6's
+  *500-prompt validation* phrase.
+- `results/contamination/aime_screen.md` and
+  `results/contamination/aime_screen_90.md` &mdash; added a header
+  note clarifying that the BM25 column is *self-normalised*
+  `[0, 1]` similarity (exact duplicate &rarr; 1.0) and is **not** on
+  the same scale as the raw BM25 figure quoted in paper &sect;7.1 /
+  App. P. The MinHash row (the actual near-duplicate gate) remains
+  clean on both the 30-problem AIME 2026 and the 90-problem
+  AIME 2024+2025+2026 screens.
+- `results/table2/PAPER_VS_LOCAL.md` &mdash; new *Column-header
+  caveats* block above the cross-reference index, explicitly
+  flagging (i) the ARC column = ARC-Challenge text proxy
+  substitution and (ii) the HumanEval relative-only footnote, so a
+  reviewer scanning the side-by-side never sees a local percentage
+  next to a paper percentage without the proxy / relative-only
+  caveat one line above.
+- `README.md` *Local Reproduction Snapshot* &mdash; one-line
+  summary box added at the top, stating that the anonymous ZIP
+  ships the **recipe** rather than trained weights, that the
+  bundled-scale checkpoints are an intentional under-budget
+  training schedule (Stage 2 ~16 % of paper PPO budget, K=8
+  instead of K=64), and that reproducing the 50.2 % AIME headline
+  requires the &sect;5 recipe in `MODEL_CARD.md`.
+
+### Rationale
+
+The six edits collectively close a class of "PDF says X, repo
+shows Y" reading gaps that any reviewer doing a one-pass side-by-side
+audit would surface. They do not change any numerical claim, the
+Stage 1 / Stage 2 training code, the evaluation dispatcher, the
+contamination-screen detectors, or the regression tests; the audit
+fixes that *do* touch executable code remain documented in the
+P0-1 - P0-4 / Q14 blocks below.
 
 ---
 

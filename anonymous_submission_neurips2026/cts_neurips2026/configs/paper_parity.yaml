@@ -1,0 +1,30 @@
+# Paper-aligned reproduction profile (merged over default.yaml via load_config).
+# Use:  python scripts/run_stage1_openmath.py --config paper_parity
+#        python scripts/run_stage2_math_ppo.py --config paper_parity --parallel-map ...
+#        python scripts/run_paper_artifacts_pipeline.py --tier full --config paper_parity
+
+paper_protocol_label: paper_parity_v1
+
+# Paper summary / appendix-style training lengths (optimizer steps).
+# NOTE: paper §6.1 reports "10,000 examples for 5,000 steps" for Stage 1.
+# Setting stage1_max_steps=5000 here matches the paper protocol exactly;
+# the prior value of 10000 was an over-train that does NOT match the paper
+# headline numbers. Stage 2 PPO is 10,000 optimizer steps per paper §6.2
+# (~800 episodes x 12.5 PPO updates).
+stage1_max_steps: 5000
+stage2_total_ppo_steps: 10000
+
+# Prefer deterministic evaluation when scripts respect eval_deterministic / CTS_GLOBAL_SEED
+eval_deterministic: true
+
+# Inner DEQ map: paper emphasizes sparse parallel modules (GPU-heavy)
+cts_deq_map_mode: parallel
+
+# Stage2 CLI: maps to --parallel-map when pipeline / one-shot sets this
+stage2_parallel_map: true
+
+# Broyden (appendix A.2 alignment)
+broyden_max_iter: 30
+
+# Pipeline-only: PPO epochs for subprocess (run_paper_artifacts_pipeline full tier)
+pipeline_stage2_ppo_epochs: 2

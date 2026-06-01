@@ -1,0 +1,12 @@
+# Local data layout after `python scripts/download_experiment_data.py`
+# Merge with default.yaml manually or load in training scripts.
+
+math500_jsonl: data/math500/test.jsonl
+# Paper §6.1: 10,000 OpenMathInstruct-2 examples for Stage 1
+openmath_train_jsonl: data/openmath_instruct/train_10000.jsonl
+stage2_math_prompts_jsonl: data/stage2/math_train_prompts_5000.jsonl
+
+# Protocol (paper / CTS_FINAL)
+mcts_branching_W: 3
+eval_math_limit: null  # null = all 500
+stage1_openmath_max_rows: 10000  # paper §6.1: 10,000 examples

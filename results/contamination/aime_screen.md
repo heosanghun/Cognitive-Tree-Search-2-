@@ -4,8 +4,8 @@
 
 Sub-verdict legend: `NO_FLAGS` = both detectors clean, `NEAR_DUPLICATE` = MinHash agreed (hard contamination hit), `LEXICAL_OVERLAP_ONLY` = BM25 above threshold but MinHash clean (typically topical vocabulary overlap that needs human review).
 
-- train file: `<repo_root>\data\aime\train_2019_2023.jsonl` (150 rows, 0 placeholders)
-- test  file: `<repo_root>\data\aime\test.jsonl` (30 rows, 0 placeholders)
+- train file: `D:\AI\cts\data\aime\train_2019_2023.jsonl` (150 rows, 0 placeholders)
+- test  file: `D:\AI\cts\data\aime\test.jsonl` (30 rows, 0 placeholders)
 - BM25 normalised score >= 0.5 flagged (top_k=5 per test item)
 - MinHash Jaccard >= 0.8 flagged (num_perm=128, backend=pure-python)
 

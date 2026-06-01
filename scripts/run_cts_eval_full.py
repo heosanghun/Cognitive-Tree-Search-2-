@@ -67,9 +67,9 @@ def _max_tokens_for(benchmark: str) -> int:
 
 # --- Single-GPU snapshot method registry ---
 # Every paper Table 2 method now has a dispatcher in `_run_cts_on_problems`.
-# Some baselines (`bandit_ucb1`, `bon_13`, `ft_nt`) currently route through
-# the closest paper-faithful proxy until their full module lands; this is
-# disclosed in the per-dispatcher print() banners and in REVIEWER_FAQ.md.
+# Some baselines historically routed through proxies; FT-NT / BoN@13 /
+# UCB1 bandit now use dedicated modules (``cts/eval/ft_nt.py``,
+# ``cts/baselines/bon_critic.py``, ``cts/baselines/ucb1_nu.py``).
 # `TABLE2_METHODS_PAPER_ONLY` is therefore now empty in this snapshot.
 TABLE2_METHODS_INTEGRATED = [
     "greedy",
@@ -189,6 +189,7 @@ def run_single_evaluation(
 _loaded_predictor = None
 _loaded_backbone = None
 _loaded_tok = None
+_loaded_ft_nt_predictor = None
 
 
 def _get_predictor(device: str, model_dir: Optional[str]):
@@ -203,6 +204,27 @@ def _get_predictor(device: str, model_dir: Optional[str]):
         _loaded_tok = tok
         _loaded_predictor = GemmaTextPredictor(model, tok, max_new_tokens=512, device=device)
     return _loaded_predictor, _loaded_backbone, _loaded_tok
+
+
+def _get_ft_nt_predictor(device: str, model_dir: Optional[str], cfg: dict):
+    global _loaded_ft_nt_predictor
+    if _loaded_ft_nt_predictor is None:
+        from pathlib import Path as _Path
+
+        from cts.eval.ft_nt import build_ft_nt_predictor
+
+        _loaded_ft_nt_predictor = build_ft_nt_predictor(
+            stage1_ckpt=_Path("artifacts/stage1_last.pt"),
+            device=device,
+            model_dir=model_dir,
+            lora_rank=int(cfg.get("lora_rank", 8)),
+            lora_targets=tuple(cfg.get("lora_target", ["q_proj", "v_proj", "o_proj"])),
+        )[0]
+        print(
+            "  [ft_nt] Stage-1 LoRA loaded into native-think predictor.",
+            flush=True,
+        )
+    return _loaded_ft_nt_predictor
 
 
 def _get_question(prob: dict, benchmark: str) -> str:
@@ -967,34 +989,23 @@ def _run_cts_on_problems(
             )
 
     elif method == "ft_nt":
-        # Paper Table 2 row "Fine-tuned + Native Think" — same backbone with
-        # Stage 1 LoRA + Stage 2 PPO loaded but NO DEQ / NO MCTS, just
-        # autoregressive native-think decoding. The current cached
-        # predictor is the bare HF model; merging the LoRA adapter into
-        # the cached predictor without re-instantiating the pipeline is
-        # non-trivial and depends on how `_get_predictor` constructs its
-        # internal pipeline. To stay HONEST (no silent greedy fall-back)
-        # we route through native_think AFTER warning the reviewer that
-        # this snapshot does not yet hot-swap the LoRA weights into the
-        # predictor. The numbers are therefore "native_think with the
-        # base model" until the LoRA-merge hook lands; this is the
-        # closest paper-faithful upper bound on FT-NT.
+        # Paper Table 2: Stage-1 LoRA + native-think AR (no DEQ / no MCTS).
         from pathlib import Path as _Path
+
         stage1_ckpt = _Path("artifacts/stage1_last.pt")
         if not stage1_ckpt.exists():
             print(
                 f"  [WARN] ft_nt: stage1 checkpoint missing at {stage1_ckpt}; "
-                f"results will equal the bare native_think baseline.",
+                f"falling back to bare native_think baseline.",
                 flush=True,
             )
+            ft_predictor = predictor
         else:
-            print(
-                f"  [ft_nt] stage1 checkpoint detected at {stage1_ckpt}; "
-                f"LoRA merge into the cached HF predictor is not wired in "
-                f"this snapshot, falling through to native_think decoding "
-                f"(no silent greedy fall-back).",
-                flush=True,
-            )
+            try:
+                ft_predictor = _get_ft_nt_predictor(device, model_dir, cfg)
+            except Exception as exc:
+                print(f"  [WARN] ft_nt LoRA load failed: {exc}; using native_think.", flush=True)
+                ft_predictor = predictor
         nt_max_tok = pred_max_tok if benchmark == "humaneval" else min(2 * pred_max_tok, 2048)
         for prob in problems:
             q = _get_question(prob, benchmark)
@@ -1002,7 +1013,7 @@ def _run_cts_on_problems(
             if not q:
                 continue
             prompt = _build_prompt(q, benchmark, native_think=True)
-            raw_pred = predictor(prompt, max_new_tokens=nt_max_tok)
+            raw_pred = ft_predictor(prompt, max_new_tokens=nt_max_tok)
             if benchmark == "humaneval":
                 completion = _extract_humaneval_completion(str(raw_pred), q, prob.get("entry_point", ""))
                 match = _humaneval_pass(q, completion, prob.get("test", ""), prob.get("entry_point", ""))
@@ -1055,37 +1066,52 @@ def _run_cts_on_problems(
             )
 
     elif method == "bon_13":
-        # Paper Table 2 row "Best-of-N @ N=13": sample 13 native-think
-        # completions and pick a "best" one. The paper uses Neuro-Critic
-        # V_psi as the scorer; without piping the critic checkpoint into
-        # this dispatcher we use longest-well-formed-chain as a coarse
-        # proxy (longer chains generally have higher V_psi by
-        # construction in the trained Stage 2 critic). Marked as a known
-        # gap in REVIEWER_FAQ.
+        # Paper Table 2: sample N=13 native-think chains; Neuro-Critic V_psi
+        # selects the best candidate (Stage-2 critic checkpoint).
         import torch as _torch
+
+        from cts.baselines.bon_critic import bon_select_pred_with_critic
+        from cts.critic.neuro_critic import NeuroCritic
+        from cts.eval.cts_eval_stack import load_cts_backbone_with_stage1, load_stage2_heads
+        from cts.policy.meta_policy import MetaPolicy
 
         N_BON = 13
         bon_temp = 0.7
         nt_max_tok = pred_max_tok if benchmark == "humaneval" else min(2 * pred_max_tok, 2048)
+        bb_bon = load_cts_backbone_with_stage1(model, tok, cfg=cfg)
+        H = bb_bon.hidden_size
+        critic_bon = NeuroCritic(z_dim=H)
+        meta_bon = MetaPolicy(text_dim=H, hidden=256, W=int(cfg.get("mcts_branching_W", 3)))
+        load_stage2_heads(meta_policy=meta_bon, critic=critic_bon, device=device)
+        try:
+            ft_pred = _get_ft_nt_predictor(device, model_dir, cfg)
+        except Exception:
+            ft_pred = predictor
         for pi, prob in enumerate(problems):
             q = _get_question(prob, benchmark)
             gold = _get_gold(prob, benchmark)
             if not q:
                 continue
             prompt = _build_prompt(q, benchmark, native_think=True)
-            preds_k: List[str] = []
+            raw_k: List[str] = []
             for k in range(N_BON):
                 _torch.manual_seed((seed * 100_000 + pi * N_BON + k) & 0x7FFFFFFF)
-                try:
-                    raw_pred = predictor(
-                        prompt, max_new_tokens=nt_max_tok,
-                        temperature=bon_temp, do_sample=True,
+                raw_k.append(
+                    ft_pred(
+                        prompt,
+                        max_new_tokens=nt_max_tok,
+                        temperature=bon_temp,
+                        do_sample=True,
                     )
-                except TypeError:
-                    raw_pred = predictor(prompt, max_new_tokens=nt_max_tok)
-                preds_k.append(_extract_pred(str(raw_pred), benchmark))
-            non_empty = [p for p in preds_k if p]
-            pred = max(non_empty, key=len) if non_empty else ""
+                )
+            pred = bon_select_pred_with_critic(
+                critic=critic_bon,
+                backbone=bb_bon,
+                raw_candidates=raw_k,
+                extract_pred_fn=_extract_pred,
+                benchmark=benchmark,
+                device=_torch.device(device),
+            )
             if benchmark == "humaneval":
                 completion = _extract_humaneval_completion(pred, q, prob.get("entry_point", ""))
                 match = _humaneval_pass(q, completion, prob.get("test", ""), prob.get("entry_point", ""))
@@ -1098,30 +1124,34 @@ def _run_cts_on_problems(
             )
 
     elif method == "bandit_ucb1":
-        # Paper Table 2 row "UCB1 Bandit (20-bin nu, c=sqrt(2))": adaptive
-        # nu_expl is replaced by a 20-arm UCB1 bandit. We route through
-        # cts_full_episode with `nu_config_mode="1nu"` (only nu_expl is
-        # live) — the closest paper-faithful proxy until the bandit
-        # module lands. Reviewer disclosure: this is "CTS with only
-        # nu_expl learned, all other operators frozen at Stage 1 means".
-        from cts.backbone.gemma_adapter import GemmaCTSBackbone
+        # Paper Table 2: 20-arm UCB1 bandit (c=sqrt(2)) over nu_expl.
+        from cts.baselines.ucb1_nu import UCB1NuExplBandit
         from cts.critic.neuro_critic import NeuroCritic
+        from cts.eval.cts_eval_stack import eval_tau_and_timeout, load_cts_backbone_with_stage1, load_stage2_heads
         from cts.latent.faiss_context import LatentContextWindow
         from cts.mcts.cts_episode import cts_full_episode
         from cts.policy.meta_policy import MetaPolicy
-        bb = GemmaCTSBackbone(model, tok); bb.eval()
-        H = bb.hidden_size; W = int(cfg.get("mcts_branching_W", 3))
+
+        bb = load_cts_backbone_with_stage1(model, tok, cfg=cfg)
+        H = bb.hidden_size
+        W = int(cfg.get("mcts_branching_W", 3))
         K = int(cfg.get("soft_thought_K", 64))
         meta_policy = MetaPolicy(text_dim=H, hidden=256, W=W).to(device)
         critic = NeuroCritic(z_dim=H).to(device)
-        eval_tau = min(float(cfg.get("tau_flops_budget", 1e14)),
-                       float(os.environ.get("CTS_EVAL_TAU_CAP", "1e13")))
-        episode_timeout_s = float(os.environ.get("CTS_EVAL_EPISODE_TIMEOUT", "180"))
+        load_stage2_heads(meta_policy=meta_policy, critic=critic, device=device)
+        eval_tau, episode_timeout_s = eval_tau_and_timeout(cfg)
+        bandit = UCB1NuExplBandit(n_arms=20)
+        print(
+            f"  [bandit_ucb1] UCB1 over {bandit.n_arms} nu_expl bins "
+            f"(c={bandit.c:.3f}).",
+            flush=True,
+        )
         for pi, prob in enumerate(problems):
             q = _get_question(prob, benchmark)
             gold = _get_gold(prob, benchmark)
             if not q:
                 continue
+            arm, nu_expl = bandit.select()
             faiss_ctx = LatentContextWindow(dim=H, retrieval_k=3, min_steps=10)
             _nu_buf: List[Any] = [] if nu_jsonl is not None else None  # type: ignore[assignment]
             try:
@@ -1135,13 +1165,29 @@ def _run_cts_on_problems(
                     max_decode_tokens=64, device=torch.device(device),
                     wall_clock_budget_s=episode_timeout_s,
                     z0_seed=_z0s, selection_seed=_sels,
-                    nu_config_mode="1nu",
+                    nu_config_mode="3nu_no_act",
+                    nu_expl_override=nu_expl,
                     nu_trace=_nu_buf,
                 )
-                pred = _extract_pred(result.answer or "", benchmark)
+                pred_raw = result.answer or ""
+                _cts_pred = _extract_pred(pred_raw, benchmark) if pred_raw else ""
+                _is_garbage = is_garbage_math(benchmark, _cts_pred)
+                if (
+                    not pred_raw
+                    or len(pred_raw.strip()) < 3
+                    or pred_raw.strip() == "obar"
+                    or _is_garbage
+                ):
+                    fallback_prompt = _build_prompt(q, benchmark, native_think=False)
+                    fallback_raw = predictor(fallback_prompt, max_new_tokens=pred_max_tok) if predictor else ""
+                    pred = _extract_pred(str(fallback_raw), benchmark) if fallback_raw else ""
+                else:
+                    pred = _cts_pred
             except Exception as exc:
-                print(f"  [bandit_ucb1 error] {exc}", flush=True); pred = ""
+                print(f"  [bandit_ucb1 error] {exc}", flush=True)
+                pred = ""
             match = _match_answer(str(pred), str(gold), benchmark)
+            bandit.update(arm, 1.0 if match else 0.0)
             scores.append(1.0 if match else 0.0)
             if _nu_buf is not None:
                 _append_nu_trace_record(

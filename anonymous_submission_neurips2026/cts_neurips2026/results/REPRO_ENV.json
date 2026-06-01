@@ -1,0 +1,16 @@
+{
+  "utc": "2026-04-11T08:13:01.167572+00:00",
+  "python": "3.13.3",
+  "platform": "win32",
+  "cwd": "<repo_root>",
+  "repo_root": "<repo_root>",
+  "git_commit": "4e7bf689f63452645ed2380b6c927f20b1f8133f",
+  "cts_global_seed": null,
+  "cts_gemma_model_dir": "<repo_root>\\gemma-4-E4B-it",
+  "cts_deq_map_mode": null,
+  "hf_hub_cache": "<repo_root>\\.hf_cache",
+  "torch": "2.7.1+cu118",
+  "cuda_available": true,
+  "cuda_version": "11.8",
+  "gpu_name": "NVIDIA GeForce RTX 4090"
+}

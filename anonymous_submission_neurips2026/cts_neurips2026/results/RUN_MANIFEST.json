@@ -1,0 +1,40 @@
+{
+  "started_utc": "2026-04-11T08:13:02.474831+00:00",
+  "tier": "quick",
+  "config": "default",
+  "cuda_available": true,
+  "gpu_name": "NVIDIA GeForce RTX 4090",
+  "cts_gemma_model_dir": "<repo_root>\\gemma-4-E4B-it",
+  "hf_hub_cache": "<repo_root>\\.hf_cache",
+  "steps": [
+    {
+      "name": "download_experiment_data",
+      "returncode": 0,
+      "duration_s": 16.784
+    },
+    {
+      "name": "profile_vram_latency",
+      "returncode": 0,
+      "duration_s": 2.311,
+      "out": "<repo_root>\\artifacts\\table1_cts_kv.csv"
+    },
+    {
+      "name": "profile_kv_measured",
+      "returncode": 0,
+      "duration_s": 1.544,
+      "out": "<repo_root>\\artifacts\\table1_kv_measured.csv"
+    },
+    {
+      "name": "report_isoflop",
+      "returncode": 0,
+      "duration_s": 1.715,
+      "out": "<repo_root>\\artifacts\\table2_isoflop_mock.json"
+    },
+    {
+      "name": "run_math500_gemma",
+      "skipped": true,
+      "reason": "no data or --skip-math-gemma"
+    }
+  ],
+  "finished_utc": "2026-04-11T08:13:24.829394+00:00"
+}

@@ -1,0 +1,98 @@
+# CTS default config — paper Table 4 + Appendix alignment
+# See configs/README.md for paper cross-reference.
+
+dtype_weights: bfloat16
+
+# === DEQ / Broyden (paper §4.2, §5.2) ===
+broyden_max_iter: 30
+broyden_tol_min: 1.0e-4
+broyden_tol_max: 1.0e-2
+broyden_fp32_buffer: true        # L-Broyden FP32 (paper §5.2)
+broyden_memory_limit: 16         # L-Broyden rank 16 (paper Table 1: ~0.12 GB FP32)
+latent_tokens_K: 64              # K=64 latent tokens (paper §4.2)
+
+# === MCTS (paper §4.1) ===
+mcts_branching_W: 3
+mcts_simulations_per_step: 3
+
+# === PPO (paper Table 4) ===
+ppo_lr: 3.0e-5                  # actor (MetaPolicy) AdamW lr
+critic_lr: 1.0e-4               # critic (value head / NeuroCritic) AdamW lr — separate group
+ppo_clip_epsilon: 0.2
+gae_lambda: 0.95
+entropy_coef: 0.01
+value_loss_coef: 0.5
+max_grad_norm: 1.0
+ppo_collect_batch: 64           # paper §6.2 / Table 4: rollout buffer size 64 (was 4 smoke-test default)
+ppo_epochs: 4                   # paper §6.2 / Table 4: 4 PPO update epochs per buffer (was 2 smoke-test default)
+
+# === Reward (paper Eq. 5) ===
+act_halting_penalty: 0.05        # λ_halt
+reward_formula: binary_minus_depth
+discount_gamma: 0.99
+
+# === LoRA (paper §6.1, App. I) ===
+lora_rank: 8
+lora_alpha: 16
+lora_target: ["q_proj", "v_proj", "o_proj"]   # paper App. I: q/v/o_proj
+
+# === Data (paper §6.1, App. I) ===
+stage1_openmath_n: 10000          # 10K OpenMathInstruct-2 (paper §6.1: "10 000 examples for 5 000 steps")
+stage2_math_prompts_n: 5000       # 5K MATH/AIME (paper §6.2)
+ppo_episodes: 800                 # paper §6.2: 800 PPO episodes
+stage2_total_ppo_steps: 10000     # ≈ 800 episodes × 12.5 PPO updates per episode
+
+# === Routing / ACT (paper §5.2, §4.3) ===
+top_k_modules: 3
+tau_flops_budget: 1.0e+14         # Iso-FLOP budget (paper §7.1; '+' makes YAML 1.1 parse this as float, not string)
+
+# === PUCT (paper Eq. 4) ===
+puct_variant: paper
+
+# === Stage 1 (paper §6.1, Appendix I) ===
+stage1_loss: fixed_point_residual  # IFT residual ||f(z*)-z*||^2
+stage1_max_steps: 5000            # paper §6.1: 5,000 steps
+stage1_lambda_lm: 0.1             # paper §6: 0.1 * L_CE (limits PPL increase to 0.4 nats)
+stage1_lr: 1.0e-4                 # paper §6.1: AdamW, lr 1e-4 (separate from PPO ppo_lr)
+stage1_warmup_steps: 100          # paper App. I: 100-step linear warm-up
+stage1_lr_schedule: cosine        # paper §6.1: cosine decay
+stage1_batch_size: 2              # paper §6.1: batch 2 (implemented as grad-accumulation)
+
+# === FAISS Latent Space Context Window (paper §4.4) ===
+faiss_enabled: true
+faiss_retrieval_k: 3              # Top-3 ancestral vectors
+faiss_min_steps: 10               # Active when t > 10
+
+# === Latent-to-Text Projection (paper §4.5) ===
+wproj_enabled: true
+think_mode_bypass: true           # '<|think|>' bypass
+
+# === Vision/Audio offloading (paper §7.1) ===
+offload_vision_audio: true        # ~0.9 GB VRAM savings
+
+# === Native Think (paper §7.1) ===
+enable_thinking: false            # enable_thinking=False in system prompt
+
+# === Eval / profiling (paper §7.1) ===
+eval_warmup_runs: 3
+eval_deterministic: false         # CTS internal stochasticity (ν_temp, PUCT tie-break) drives seed variance
+eval_seeds: 5                     # 5 seeds: 3 full re-trainings + 2 inference-only (paper §7.1)
+eval_ci_level: 0.95               # 95% bootstrap CI, 1000 resamples (paper §7.1)
+eval_bonferroni_n: 12             # α = 0.05/12 for Wilcoxon (paper §7.1: "12 primary comparisons")
+cuda_sync_for_timing: true
+max_anchor_tokens: null
+max_new_tokens: 64                # Matches CTS K=64 representation bottleneck
+
+# Single-GPU compute caps for `scripts/run_cts_eval_full.py` (overridable via env vars):
+#   CTS_EVAL_TAU_CAP          : per-episode MAC budget cap (paper full = 1e14; default 1e13 = 1/10)
+#   CTS_EVAL_EPISODE_TIMEOUT  : per-episode wall-clock cap in seconds (paper unbounded; default 180)
+# These caps DO NOT alter the algorithm; they only bound runtime on commodity hardware.
+# Set CTS_EVAL_TAU_CAP=1e14 and unset CTS_EVAL_EPISODE_TIMEOUT to reproduce paper-scale compute.
+
+# === Legacy compatibility (kept for backward compat; canonical values above take precedence) ===
+lr: 3.0e-5                  # same as ppo_lr
+batch_size: 16
+gamma: 0.99                 # aligned with discount_gamma (paper Table 4)
+soft_thought_K: 64           # aligned with latent_tokens_K (paper §4.2)
+soft_thought_d: 64
+lambda_ado_penalty: 0.05     # aligned with act_halting_penalty (paper Eq.5)

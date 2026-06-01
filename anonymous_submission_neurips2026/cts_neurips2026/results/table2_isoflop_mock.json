@@ -1,0 +1,8 @@
+{
+  "broyden_iterations": 12,
+  "phi_evals_per_broyden_iter": 2,
+  "flops_inner_once": 1599943053.7223816,
+  "flops_broyden_estimate": 38398633289.33716,
+  "converged": true,
+  "residual_norm": 0.0034207322169095278
+}

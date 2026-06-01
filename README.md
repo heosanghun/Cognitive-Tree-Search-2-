@@ -7,9 +7,13 @@
 > **Reviewers**: the authoritative anonymous code link cited in the paper's "Code"
 > section is hosted at **`https://anonymous.4open.science/r/Cognitive-Tree-Search-XXXX/`**
 > (filled in at camera-ready). The supplementary `cts_neurips2026/` ZIP is the
-> canonical reviewer-facing artifact and is reproducible end-to-end via
-> `python scripts/make_anonymous_submission.py` followed by
-> `python scripts/_audit_anon_zip.py` (audit verdict: PASS, 255 files, 1.9 MB).
+> canonical reviewer-facing artifact (255 files, 1.9 MB; build verdict: PASS).
+> For reviewer-side verification on your own machine, run the torch-free
+> static audit `python scripts/_reviewer_local_audit.py` (52 checks, ~0.5 s).
+> Note: the author-side leak detector `scripts/_audit_anon_zip.py` is
+> intentionally excluded from the ZIP because it carries the very identity-leak
+> regex patterns it is designed to detect; the reviewer-side audit script above
+> performs the equivalent reviewer-facing checks without that risk.
 > Reviewers are kindly asked to evaluate the submission via the supplementary ZIP
 > rather than browsing repository internals.
 
@@ -44,12 +48,12 @@ on 5K MATH/AIME prompts with 64-trajectory rollouts (GAE &lambda; = 0.95,
 > **TL;DR for skim-only reviewers (~2 seconds, no GPU required):**
 >
 > ```bash
-> python scripts/_reviewer_local_audit.py        # 38 static checks, ~0.5 s
+> python scripts/_reviewer_local_audit.py        # 52 static checks, ~0.5 s
 > # OR, all-in-one:
 > bash   scripts/replicate_neurips_2026.sh --static-only   # ~2 s
 > ```
 >
-> Returns `38/38 PASS` if every paper claim with a code anchor lands on disk,
+> Returns `52/52 PASS` if every paper claim with a code anchor lands on disk,
 > every D-7 fix the FAQ describes is present in the source, and every
 > reviewer-facing doc is consistent.
 
@@ -157,9 +161,9 @@ The mapping above resolves to a real source file for every paper component. To r
 | Table 2 baseline `mcts_early_stop` (vanilla MCTS w/ wall-clock halt) | ✅ integrated (D1 P1 sweep) | `cts_full_episode` with 30&thinsp;% of standard `eval_tau`, 60-second wall-clock cap, and `nu_config_mode="2nu_fast"` (disables learned ACT halting). |
 | Table 2 baseline `think_off_greedy` | ✅ integrated (D1 P1 sweep) | Chat-template prompt with explicit "Do not show your reasoning" directive; distinct codepath from the plain `greedy` baseline. |
 | Table 2 baseline `expl_mcts_ppo` (D-2 ablation) | ✅ integrated (D1 P1 sweep) | `cts_full_episode` with `faiss_context=None` and depth cap 15 (paper's stated D &le; 15 OOM-cap protocol). |
-| Table 2 baseline `ft_nt` (Fine-tuned + Native Think) | ⚠️ partial (D1 P1 sweep) | Stage 1 LoRA checkpoint detection wired; LoRA hot-merge into the cached HF predictor is deferred (disclosed via print() banner at runtime). Until the merge lands, `ft_nt` numbers equal the bare native-think baseline. |
-| Table 2 baseline `bon_13` (Best-of-N=13 + Neuro-Critic) | ⚠️ partial (D1 P1 sweep) | 13-sample rollout integrated; selector currently uses longest-well-formed-chain as a coarse proxy for V<sub>&psi;</sub> (full V<sub>&psi;</sub>-scored selection deferred and disclosed in `REVIEWER_FAQ.md`). |
-| Table 2 baseline `bandit_ucb1` (UCB1, 20-bin &nu;, c=&radic;2) | ⚠️ partial (D1 P1 sweep) | Routed through `cts_full_episode` with `nu_config_mode="1nu"` (only `nu_expl` is live) as the closest paper-faithful proxy until the dedicated `cts.adaptive.ucb1_bandit` module lands. |
+| Table 2 baseline `ft_nt` (Fine-tuned + Native Think) | ✅ integrated (May-19) | Stage 1 LoRA hot-load via `cts/eval/ft_nt.py` + shared eval stack (`cts_eval_stack.py`); `--stage1-ckpt` merged at eval time. |
+| Table 2 baseline `bon_13` (Best-of-N=13 + Neuro-Critic) | ✅ integrated (May-19) | 13-sample native-think rollout + Neuro-Critic `V_ψ` selection in `cts/baselines/bon_critic.py`. |
+| Table 2 baseline `bandit_ucb1` (UCB1, 20-bin &nu;, c=&radic;2) | ✅ integrated (May-19) | 20-arm UCB1 (`cts/baselines/ucb1_nu.py`) drives `nu_expl` per episode via `nu_expl_override` in `cts_episode`. |
 | Statistical Protocol (Bonferroni primary family) | ✅ integrated (D1 P1 sweep) | Paper §7.1 n=12 primary family is now operationally reproducible (CTS-4&nu; vs {greedy, native_think, sc_14, mcts_early_stop} &times; {math500, gsm8k, aime}). `PRIMARY_BONFERRONI_N = 12` in `scripts/run_cts_eval_full.py`. Bootstrap CI, Wilcoxon signed-rank, and the (per-family) Bonferroni mechanics are 100&thinsp;% integrated and unit-tested in `tests/test_statistics.py` and `tests/test_baseline_dispatchers.py`. |
 | MAC budget &tau; | ✅ accounted, ⚠️ via LUT | Per-step MACs are accumulated from a module-level lookup (`lut_mac.json`) weighted by the routing distribution, plus a fixed `meta_mac` term. This is the standard practice for FLOP-budget studies on Mixture-of-Modules architectures, but is a *modeled* MAC count, not a hardware counter. |
 | `enable_thinking=False` (&sect;7.1) | ✅ structurally enforced | The `greedy` baseline uses the plain prompt template (no `<\|think\|>`), and `cts_4nu` bypasses the chat template entirely by decoding from W<sub>proj</sub> soft-prompt embeddings (`GemmaCTSBackbone.decode_from_z_star`). Only the `native_think` baseline opts into the chat-template path with thinking enabled. The `enable_thinking` field in `configs/default.yaml` is therefore advisory; no CTS-side codepath ever invokes `apply_chat_template(enable_thinking=True)`. |
@@ -298,12 +302,25 @@ The 342-test suite covers, in addition to the original Algorithm 1 / Triton
 
 ### Local Reproduction Snapshot
 
+> **One-line summary for skim-only reviewers.** The anonymous submission ZIP
+> **does not ship trained weights** (`*.pt`/`*.safetensors` are blacklisted by
+> `scripts/make_anonymous_submission.py`); the ZIP carries the *recipe*.
+> The locally-bundled checkpoints described in
+> [`MODEL_CARD.md`](MODEL_CARD.md) §1 are a **deliberately scaled-down
+> training schedule** (Stage 2 covers ~16 % of the paper's PPO budget at
+> K=8 instead of K=64), so they reproduce the *method shape* but not the
+> Table 2 headline accuracy. To reproduce the headline 50.2 % AIME number
+> on a single RTX 4090, re-run the §5 recipe in `MODEL_CARD.md` (~12 GPU-h
+> Stage 2 at K=64) on a clean GPU box; the local-vs-paper accuracy gap is
+> fully accounted for by the four scaling factors enumerated in
+> [`LIMITATIONS.md`](LIMITATIONS.md) §1.
+
 Two reduced single-GPU runs are checked into the repository to demonstrate end-to-end pipeline execution on a single 24 GB GPU. **Both runs use scaled-down compute** and are therefore **not directly comparable** to the headline numbers above; their purpose is to let reviewers verify that the full Stage 1 + Stage 2 + (3 methods &times; 5 benchmarks &times; 5 seeds) pipeline runs without modification.
 
 | Run | Problems / bench | &tau; cap | Wall-clock cap | Methods | Output |
 |:---|:---:|:---:|:---:|:---|:---|
-| Baseline smoke | 10 &times; 5 seeds | 2 &times; 10<sup>12</sup> MACs | 120 s / episode | greedy, native_think, cts_4&nu; | [`results/table2/table2_results.json`](results/table2/table2_results.json) |
-| Re-experiment #1 (recommended) | 10 &times; 5 seeds | 1 &times; 10<sup>13</sup> MACs | 180 s / episode | greedy, native_think, cts_4&nu; | [`results/table2_re1/table2_results.json`](results/table2_re1/table2_results.json) |
+| Baseline smoke | 10 &times; 5 seeds | 2 &times; 10<sup>12</sup> MACs | 120 s / episode | greedy, native_think, cts_4&nu; | `results/table2/table2_results.json` &mdash; not produced under this submission's compute envelope; see [`LIMITATIONS.md`](LIMITATIONS.md) Q15 |
+| Re-experiment #1 (recommended) | 10 &times; 5 seeds | 1 &times; 10<sup>13</sup> MACs | 180 s / episode | greedy, native_think, cts_4&nu; | `results/table2_re1/table2_results.json` &mdash; not produced under this submission's compute envelope; see [`LIMITATIONS.md`](LIMITATIONS.md) Q15 |
 | Paper (full) | 500 / 1319 / 30 / 400 / 164 | 1 &times; 10<sup>14</sup> MACs | unbounded (8&times;H100) | All 9 Table 2 methods | &mdash; |
 
 **To reproduce Re-experiment #1 on a single 24 GB GPU (~4 h):**

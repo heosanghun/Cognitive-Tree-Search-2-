@@ -216,3 +216,13 @@ def hybrid_transition_decision(
 
     kv_manager.record_decision(hit=False)
     return False, None
+
+
+def capture_backbone_kv(backbone: Any, text_state: str) -> Optional[Any]:
+    """Section 7.7 skeleton: extract past_key_values from the Gemma backbone.
+
+    Returns None until GemmaCTSBackbone exposes a stable KV serialization API.
+    HybridKVManager.store_kv is the consumer once this hook is implemented.
+    """
+    _ = (backbone, text_state)
+    return None

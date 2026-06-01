@@ -1,0 +1,23 @@
+{
+  "started_at_utc": "2026-05-21T01:35:29+00:00",
+  "steps": {
+    "00_wait": {
+      "status": "FAIL",
+      "reason": "timeout",
+      "elapsed_min": 5000.276773178577
+    }
+  },
+  "completed_step_ids": [
+    "00_wait"
+  ],
+  "autopilot_pid": 32908,
+  "updated_at_utc": "2026-05-24T12:55:54+00:00",
+  "heartbeat": {
+    "phase": "wait_stage2",
+    "step": 7940,
+    "total": 10000,
+    "pid": 37264,
+    "pid_alive": true,
+    "elapsed_min": 5000.3
+  }
+}

@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cognitive-tree-search"
+version = "0.2.0"
+description = "Cognitive Tree Search (CTS) — KV-Cache-Free DEQ + neuromodulated MCTS (NeurIPS 2026)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "torch>=2.0",
+  "numpy>=1.24",
+  "pyyaml>=6.0",
+  "transformers>=4.51",
+  "accelerate>=0.34",
+  "huggingface_hub>=0.26",
+  "safetensors>=0.4",
+  "sentencepiece>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+]
+data = [
+  "datasets>=2.16",
+]
+train = [
+  "peft>=0.10",
+]
+faiss = [
+  "faiss-cpu>=1.7",
+]
+# Gemma 4 needs transformers with model_type gemma4 (often main branch until release):
+# pip install git+https://github.com/huggingface/transformers.git
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "slow: downloads or loads Gemma 4 E4B (set HF_HUB_CACHE)",
+]
+filterwarnings = [
+  "ignore:.*asyncio_default_fixture_loop_scope.*:pytest.PytestDeprecationWarning",
+]

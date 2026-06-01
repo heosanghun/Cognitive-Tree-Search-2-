@@ -30,6 +30,11 @@ ppo_epochs: 4                   # paper §6.2 / Table 4: 4 PPO update epochs per
 act_halting_penalty: 0.05        # λ_halt
 reward_formula: binary_minus_depth
 discount_gamma: 0.99
+# Stage-2 rollout reward: auto | answer | converged (see cts/train/stage2_reward.py)
+stage2_reward_mode: auto
+# Tokens decoded per PPO rollout transition for reward grading (1 = legacy;
+# use >= 32 with stage2_reward_mode answer/auto + JSONL rows that carry solution)
+stage2_rollout_decode_tokens: 1
 
 # === LoRA (paper §6.1, App. I) ===
 lora_rank: 8

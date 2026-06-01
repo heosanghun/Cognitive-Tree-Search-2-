@@ -1,0 +1,35 @@
+{
+  "by_mode": {
+    "hybrid_off": {
+      "n": 12,
+      "wall_seconds_mean": 0.014689174997329246,
+      "wall_seconds_std": 0.0009564291492177522,
+      "decision_calls_mean": 0.0,
+      "cached_nodes_mean": 0.0,
+      "vram_used_gb_mean": 0.0
+    },
+    "hybrid_decision_only": {
+      "n": 12,
+      "wall_seconds_mean": 0.014485383333521895,
+      "wall_seconds_std": 0.0005561234121761861,
+      "decision_calls_mean": 5.0,
+      "cached_nodes_mean": 0.0,
+      "vram_used_gb_mean": 0.0
+    }
+  },
+  "tost": {
+    "p_lower": 0.00446050168535872,
+    "p_upper": 0.05711681342514986,
+    "p_max": 0.05711681342514986,
+    "equivalent": false,
+    "n_a": 12,
+    "n_b": 12,
+    "mean_diff": 0.00020379166380735114,
+    "delta": 0.0007344587498664623
+  },
+  "n_seeds": 3,
+  "n_problems": 4,
+  "margin_frac": 0.05,
+  "alpha": 0.05,
+  "caveat": "**KV-reuse hit path NOT YET measured.** The paper's −21 % wall-clock figure (§7.7) requires backbone-level `past_key_values` serialization that is not yet plumbed into `GemmaCTSBackbone`. This report measures only what the local pipeline can honestly observe today: (a) the decision overhead of consulting `HybridKVManager` on every leaf, and (b) the cached-node statistics surfaced by `HybridKVManager.report()`. The −21 % figure remains the **paper's reference number**, not a measured local result."
+}

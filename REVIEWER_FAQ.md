@@ -13,7 +13,7 @@ will be updated during the rebuttal window.
 > python scripts/_reviewer_local_audit.py
 > ```
 >
-> Returns `34/34 PASS` if every paper claim with a code anchor lands on
+> Returns `57/57 PASS` if every paper claim with a code anchor lands on
 > disk, every D-7 fix the FAQ describes is present in the source, and
 > every reviewer-facing doc is consistent. See also
 > [`LIMITATIONS.md`](LIMITATIONS.md) for the consolidated honest-limitations
@@ -74,7 +74,7 @@ return sparse_module_weights(alpha, top_k)
 The PyTorch reference is the fallback. To force-disable Triton (for
 debugging), set `CTS_DISABLE_TRITON=1`. Numerical equivalence between
 the Triton kernel and the reference is locked down by
-[`tests/test_routing_sparse_triton_parity.py`](tests/test_routing_sparse_triton_parity.py).
+[`tests/test_routing_triton_ref.py`](tests/test_routing_triton_ref.py).
 
 ## Q4. The single-GPU re-experiment numbers don't match the paper headline. Is this a reproducibility failure?
 
@@ -372,8 +372,8 @@ Run:
 python scripts/make_anonymous_submission.py
 ```
 
-This produces `anonymous_submission_neurips2026.zip` (~1.5 MB,
-225 files) excluding: `.git/`, `artifacts/`, `.hf_cache/`,
+This produces `anonymous_submission_neurips2026.zip` (~1.9 MB,
+255 files) excluding: `.git/`, `artifacts/`, `.hf_cache/`,
 `gemma-*/`, `data/`, `doc/`, `results/`, `terminals/`, `.cursor/`,
 `__pycache__/`, all `*.pt`/`*.bin`/`*.safetensors`/`*.pdf`, plus
 development-scratch markdown files (`SUBMISSION_GUIDE_*.md`,
@@ -385,8 +385,8 @@ constants and unit-checked during the one-time audit run via
 audit script itself contains the leak-pattern strings it is designed
 to detect).
 
-**Latest audit (2026-04-26): `VERDICT: PASS` &mdash; 0 identity leaks
-across all 225 included files.**
+**Latest audit (D-day rebuild): `VERDICT: PASS` &mdash; 0 identity leaks
+across all 255 included files.**
 
 The same exclusion rules now also apply to the public GitHub branch
 `d2-neurips2026-anonymized` (see CHANGELOG D11). All commits on that
@@ -484,10 +484,10 @@ is truncated (a desirable property the paper claims in &sect;7.6).
 | Component | Verified by |
 |:---|:---|
 | Backbone weights | SHA256 of `model.safetensors` matches HF `google/gemma-4-E4B` pin in `cts/model/gemma_loader.py` |
-| Tokenizer & prompts | `tests/test_eval_humaneval_prompt.py`, `cts/eval/prompts.py` |
-| DEQ L-Broyden solver | `tests/test_deq_solver_paper_parity.py` |
+| Tokenizer & prompts | `tests/test_eval_humaneval_prompt.py`, `cts/eval/prompt_format.py` |
+| DEQ L-Broyden solver | `tests/test_paper_parity_config.py` (DEQ section), `cts/deq/broyden_forward.py` |
 | MCTS PUCT + &nu;-config wiring | `tests/test_meta_policy_critic_invariants.py` (P0-1 audit fix) |
-| Stage 1/2 hyperparameters | P0-2/3/4 patches; `tests/test_stage1_paper_parity.py`, `tests/test_stage2_ppo_paper_parity.py` |
+| Stage 1/2 hyperparameters | P0-2/3/4 patches; `tests/test_stage1_train_paper_parity.py`, `tests/test_stage2_ppo_paper_parity.py` |
 | AIME data (90 problems) | `tests/test_aime_90_dispatcher.py`, `results/contamination/aime_screen_90.md` (WARN, lexical-only) |
 | Stage 2 checkpoint metadata | `training_meta` block embedded in `stage2_meta_value.pt` (`paper_faithful_p0_4` flag); validated by `phase_verify_stage2` in `scripts/run_post_stage2_pipeline.py` |
 
@@ -738,7 +738,7 @@ bash scripts/replicate_neurips_2026.sh --static-only
 ```
 
 This runs steps 0-3 of the replication script: reviewer-side
-static audit (38 checks), torch-free static D-7 validation
+static audit (52 checks), torch-free static D-7 validation
 (29 tests), mock-based dispatcher fallback (17 tests). Returns
 exit 0 if every D-7 fix is intact and every claim with a code
 anchor lands on disk.
@@ -924,8 +924,81 @@ together give the reviewer ground-truth on this in &le; 5 seconds.
 
 ---
 
-*Last refreshed: 2026-04-29 (D-7), with reviewer-facing entries Q1-Q18
-covering the full reproducibility surface from O(1) VRAM (Q1) through
-the paper-vs-local methodology audit (Q18). See
-[`CHANGELOG.md`](CHANGELOG.md) D-7 entries for the cumulative change
-record.*
+## Q19. Table 2 baselines `ft_nt`, `bon_13`, and `bandit_ucb1` — are they still proxy dispatchers?
+
+**Short answer**: No (as of 2026-05-19). All three now have dedicated,
+paper-aligned codepaths wired through `scripts/run_cts_eval_full.py`.
+Earlier D1 P1-sweep builds routed them through coarse proxies; those
+paths were replaced in the May-19 baseline-wiring patch.
+
+| Method | Module | What it does |
+|---|---|---|
+| `ft_nt` | [`cts/eval/ft_nt.py`](cts/eval/ft_nt.py) + [`cts/eval/cts_eval_stack.py`](cts/eval/cts_eval_stack.py) | Hot-loads Stage-1 LoRA from `--stage1-ckpt` into the Gemma backbone, then runs native-think AR decoding. |
+| `bon_13` | [`cts/baselines/bon_critic.py`](cts/baselines/bon_critic.py) | 13-sample native-think rollouts; selects the best chain by Neuro-Critic \(V_\psi\), not longest-chain heuristics. |
+| `bandit_ucb1` | [`cts/baselines/ucb1_nu.py`](cts/baselines/ucb1_nu.py) + [`cts/mcts/cts_episode.py`](cts/mcts/cts_episode.py) | 20-bin UCB1 bandit (\(c=\sqrt{2}\)) sets `nu_expl` per episode via the `nu_expl_override` kwarg. |
+
+**How to verify without a GPU**:
+
+```bash
+pytest tests/test_baselines_cpu.py tests/test_nu_expl_override.py -q
+python scripts/_reviewer_local_audit.py
+```
+
+**How to verify with a GPU** (after Stage 2 completes):
+
+```bash
+python scripts/run_cts_eval_full.py \
+    --benchmarks gsm8k --methods ft_nt bon_13 bandit_ucb1 \
+    --seeds 0 --device cuda:0 --limit 10 \
+    --stage1-ckpt artifacts/stage1_last.pt \
+    --stage2-ckpt artifacts/stage2_meta_value.pt
+```
+
+Each method must produce a distinct JSON cell (not identical to
+`native_think` / `cts_4nu` on every problem). Post-fix headline numbers
+land in `results/post_stage2_May2026/` via
+`scripts/run_post_stage2_pipeline.py` (see Q20).
+
+---
+
+## Q20. Stage 2 PPO reward — does training use paper Eq.(5) answer correctness?
+
+**Short answer**: **Not for the in-flight May 2026 10k-step run.**
+That run used a DEQ **convergence proxy** because the on-disk Stage-2
+JSONL pool historically lacked gold `solution` fields. This is disclosed
+in [`LIMITATIONS.md`](LIMITATIONS.md) §15 and is **not** a silent bug:
+reward mode is explicit in config and code.
+
+| Mode | When used | Reward signal |
+|---|---|---|
+| `auto` (default) | Gold answer on disk → `answer`; else → `converged` | Paper Eq.(5) or proxy |
+| `answer` | Operator sets explicitly + gold JSONL + `stage2_rollout_decode_tokens >= 32` | \(1\{\text{correct}\} - \lambda_{\text{halt}} T\) |
+| `converged` | Debug / legacy | `solver_stats['converged']` |
+
+**Evidence (CPU, no GPU)**:
+
+```bash
+pytest tests/test_stage2_reward.py -q
+rg "stage2_reward_mode|stage2_rollout_reward" cts/train/stage2_ppo_train.py configs/default.yaml
+```
+
+**What we claim for the May 2026 checkpoint**: PPO hyperparameters match
+paper §6.2 (`collect_batch=64`, `ppo_epochs=4`, actor/critic LRs,
+\(\lambda_{\text{halt}}=0.05\); see Q18). We do **not** claim that
+checkpoint was trained with answer-oracle Eq.(5) unless the operator
+re-downloads Stage-2 JSONL (with `solution`), sets
+`stage2_rollout_decode_tokens >= 32`, and re-runs Stage 2 with
+`stage2_reward_mode: answer`.
+
+**Monitor training / gate post-S2 eval (read-only, safe during training)**:
+
+```bash
+python scripts/check_stage2_progress.py
+```
+
+---
+
+*Last refreshed: 2026-05-19, with reviewer-facing entries Q1-Q20
+covering O(1) VRAM (Q1) through Stage 2 reward disclosure (Q20).
+May-19 baseline wiring: Q19. See [`CHANGELOG.md`](CHANGELOG.md)
+[unreleased] block for the cumulative change record.*

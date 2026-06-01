@@ -25,11 +25,31 @@ def main() -> None:
     p.add_argument("--device", type=str, default=None)
     p.add_argument("--W", type=int, default=3)
     p.add_argument("--K", type=int, default=64)
-    p.add_argument("--collect-batch", type=int, default=4)
-    p.add_argument("--ppo-epochs", type=int, default=2)
+    p.add_argument(
+        "--collect-batch",
+        type=int,
+        default=None,
+        help="Rollout buffer size (default: configs/<config>.yaml ppo_collect_batch, usually 64)",
+    )
+    p.add_argument(
+        "--ppo-epochs",
+        type=int,
+        default=None,
+        help="PPO update epochs per buffer (default: configs/<config>.yaml ppo_epochs, usually 4)",
+    )
     p.add_argument("--broyden-max-iter", type=int, default=12)
     p.add_argument("--parallel-map", action="store_true", help="CTS_DEQ_MAP_MODE=parallel (heavy)")
     p.add_argument("--stage1-ckpt", type=str, default=None, help="Optional artifacts/stage1_last.pt")
+    p.add_argument(
+        "--resume-from",
+        type=str,
+        default=None,
+        help="Optional Stage-2 intermediate ckpt (e.g. artifacts/stage2_meta_value.intermediate.pt). "
+        "When provided, meta-policy / critic / value-head weights are loaded and the PPO loop "
+        "resumes at training_meta.step rather than starting from 0. AdamW optimiser state is "
+        "intentionally not restored (the ckpt does not carry it); expect a brief loss-spike "
+        "while Adam moments re-warm.",
+    )
     p.add_argument("--use-critic-reward", action="store_true")
     p.add_argument("--log-every", type=int, default=5)
     p.add_argument(
@@ -63,14 +83,19 @@ def main() -> None:
         "device": args.device,
         "W": args.W,
         "K": args.K,
-        "collect_batch": args.collect_batch,
-        "ppo_epochs": args.ppo_epochs,
         "broyden_max_iter": args.broyden_max_iter,
         "parallel_map": args.parallel_map,
         "stage1_checkpoint": args.stage1_ckpt,
         "use_critic_reward": args.use_critic_reward,
         "log_every": args.log_every,
+        "resume_from": args.resume_from,
     }
+    # Only forward when explicitly set so ``run_stage2_math_ppo`` falls back
+    # to paper-parity values from the YAML (64 / 4) instead of smoke defaults.
+    if args.collect_batch is not None:
+        kwargs["collect_batch"] = args.collect_batch
+    if args.ppo_epochs is not None:
+        kwargs["ppo_epochs"] = args.ppo_epochs
     if args.save_every is not None:
         kwargs["save_every"] = int(args.save_every)
     run_stage2_math_ppo(**kwargs)

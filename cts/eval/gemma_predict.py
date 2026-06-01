@@ -46,12 +46,18 @@ class GemmaTextPredictor:
         return int(tid)
 
     @torch.inference_mode()
-    def __call__(self, prompt: str, *, max_new_tokens: Optional[int] = None) -> str:
-        """Greedy decode `prompt`. Per-call ``max_new_tokens`` overrides the
-        instance default; this is critical for short-answer benchmarks
-        (ARC-AGI-Text MCQ, AIME integer answers) where decoding the full
-        ``self.max_new_tokens`` budget can otherwise dominate wall-clock and
-        starve the wall-clock-budgeted MCTS loop.
+    def __call__(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        do_sample: bool = False,
+    ) -> str:
+        """Greedy or sampled decode of ``prompt``.
+
+        Per-call ``max_new_tokens`` overrides the instance default. Optional
+        ``temperature`` / ``do_sample`` support SC@14 and BoN@13 baselines.
         """
         if self.use_chat_template and hasattr(self.tokenizer, "apply_chat_template"):
             messages = [{"role": "user", "content": prompt}]
@@ -78,12 +84,18 @@ class GemmaTextPredictor:
                 attn = attn.to(self._device)
         pad = self._pad_id()
         n_new = int(max_new_tokens) if max_new_tokens is not None else self.max_new_tokens
+        sample = bool(do_sample)
+        gen_kwargs: dict = {
+            "max_new_tokens": n_new,
+            "do_sample": sample,
+            "pad_token_id": pad,
+        }
+        if sample and temperature is not None:
+            gen_kwargs["temperature"] = float(temperature)
         gen = self.model.generate(
             input_ids=input_ids,
             attention_mask=attn,
-            max_new_tokens=n_new,
-            do_sample=False,
-            pad_token_id=pad,
+            **gen_kwargs,
         )
         in_len = input_ids.shape[1]
         new_tokens = gen[0, in_len:]

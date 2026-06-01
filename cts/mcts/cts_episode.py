@@ -54,6 +54,18 @@ def _pool_z_star(z: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
     return z.detach().float().mean(dim=0)
 
 
+def _apply_nu_expl_override(nu: NuVector, override: Optional[float]) -> NuVector:
+    if override is None:
+        return nu
+    return NuVector(
+        nu_val=nu.nu_val,
+        nu_expl=float(override),
+        nu_tol=nu.nu_tol,
+        nu_temp=nu.nu_temp,
+        nu_act=nu.nu_act,
+    )
+
+
 def _backpropagate(tree: SearchTree, node_id: int, q_values: List[float]) -> None:
     """Backpropagate mean Q from children up to root (paper line 14)."""
     node = tree.nodes[node_id]
@@ -154,6 +166,7 @@ def cts_full_episode(
     selection_seed: Optional[int] = None,
     nu_config_mode: Optional[NuConfigMode] = None,
     nu_trace: Optional[List[NuVector]] = None,
+    nu_expl_override: Optional[float] = None,
     k_override: Optional[int] = None,
     w_override: Optional[int] = None,
 ) -> CtsEpisodeResult:
@@ -176,6 +189,10 @@ def cts_full_episode(
         ``cts/eval/nu_stats.py`` to reproduce the paper Table 19 per-domain
         ν statistics. ``None`` (the default) keeps the historical zero-overhead
         behaviour so the existing 308 tests stay green.
+
+    ``nu_expl_override``: when set, replaces ``nu.nu_expl`` after the
+        meta-policy sample and ``nu_config_mode`` mask (paper Table 2
+        UCB1 bandit baseline: gradient-free adaptive nu_expl).
 
     ``k_override``: paper Table 13 (MCTS top-K children sensitivity sweep).
         When provided, overrides the per-leaf children-expansion count
@@ -275,6 +292,7 @@ def cts_full_episode(
             nu, priors = meta_policy(z_pooled.to(device))
         if nu_config_mode is not None:
             nu = nu.apply_config(nu_config_mode)
+        nu = _apply_nu_expl_override(nu, nu_expl_override)
         if nu_trace is not None:
             nu_trace.append(nu)
 
@@ -304,6 +322,7 @@ def cts_full_episode(
                 nu, priors = meta_policy(z_pooled.to(device))
             if nu_config_mode is not None:
                 nu = nu.apply_config(nu_config_mode)
+            nu = _apply_nu_expl_override(nu, nu_expl_override)
             if nu_trace is not None:
                 nu_trace.append(nu)
 

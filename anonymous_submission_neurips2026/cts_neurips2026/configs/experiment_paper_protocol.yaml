@@ -1,0 +1,18 @@
+# Paper-aligned evaluation protocol (Table 1 / 2 sweep) — merge with default.yaml via load_config pattern
+# Usage: document reference; merge manually or extend load_config to accept list of names.
+
+ablation_name: paper_protocol_reference
+
+mcts_branching_W: 3
+mcts_simulations_per_step: 3
+
+# Table 1 depth sweep (tune to match available VRAM)
+profile_depths: [1, 5, 10, 15, 20, 25, 30]
+
+# Table 2 sample caps (full runs remove limits)
+math500_eval_limit: null
+arc_eval_limit: null
+
+# Iso-FLOP: DEQ inner + Broyden (see transition solver_stats); decode budget separate
+report_flops_broyden_estimate: true
+report_decode_tokens: true

@@ -4,6 +4,13 @@
 
 Sub-verdict legend: `NO_FLAGS` = both detectors clean, `NEAR_DUPLICATE` = MinHash agreed (hard contamination hit), `LEXICAL_OVERLAP_ONLY` = BM25 above threshold but MinHash clean (typically topical vocabulary overlap that needs human review).
 
+> **Note on BM25 scale (added 2026-05-15).** Same caveat as the 30-problem
+> screen: BM25 here is the *self-normalised* `[0, 1]` similarity from
+> `cts/data/contamination_screen.py` and is not on the same scale as the
+> raw BM25 figure quoted in paper §7.1 / App. P. The near-duplicate
+> verdict is the MinHash row (clean, 0 pairs). See
+> [`LIMITATIONS.md`](../../LIMITATIONS.md) §12.
+
 - train file: `data\aime\train_2019_2023.jsonl` (150 rows, 0 placeholders)
 - test  file: `data\aime\test_aime_90.jsonl` (90 rows, 0 placeholders)
 - BM25 normalised score >= 0.5 flagged (top_k=5 per test item)

@@ -1,0 +1,20 @@
+# K-sweep plan (18 jobs)
+# format: K seed benchmark
+2	0	aime
+2	1	aime
+2	2	aime
+3	0	aime
+3	1	aime
+3	2	aime
+4	0	aime
+4	1	aime
+4	2	aime
+5	0	aime
+5	1	aime
+5	2	aime
+6	0	aime
+6	1	aime
+6	2	aime
+8	0	aime
+8	1	aime
+8	2	aime

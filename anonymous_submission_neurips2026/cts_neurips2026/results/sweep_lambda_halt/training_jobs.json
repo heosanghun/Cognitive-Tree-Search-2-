@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "param_name": "lambda_halt",
+  "param_values": [
+    0.01,
+    0.05,
+    0.1,
+    0.5
+  ],
+  "jobs": [
+    {
+      "lambda_halt": 0.01,
+      "ckpt_path": "runs/stage2_lambda_0.01/policy.pt",
+      "status": "PENDING_GPU",
+      "cli": [
+        "python",
+        "scripts/run_stage2_math_ppo.py",
+        "--config",
+        "default",
+        "--steps",
+        "10000"
+      ],
+      "env": {
+        "CTS_ACT_HALTING_PENALTY": "0.01"
+      },
+      "notes": "Stage 2 PPO retrain with act_halting_penalty=0.01. Save the resulting policy/critic state-dict to runs/stage2_lambda_0.01/policy.pt so run_sweep_lambda_halt.py eval-mode picks it up."
+    },
+    {
+      "lambda_halt": 0.05,
+      "ckpt_path": "runs/stage2_lambda_0.05/policy.pt",
+      "status": "PENDING_GPU",
+      "cli": [
+        "python",
+        "scripts/run_stage2_math_ppo.py",
+        "--config",
+        "default",
+        "--steps",
+        "10000"
+      ],
+      "env": {
+        "CTS_ACT_HALTING_PENALTY": "0.05"
+      },
+      "notes": "Stage 2 PPO retrain with act_halting_penalty=0.05. Save the resulting policy/critic state-dict to runs/stage2_lambda_0.05/policy.pt so run_sweep_lambda_halt.py eval-mode picks it up."
+    },
+    {
+      "lambda_halt": 0.1,
+      "ckpt_path": "runs/stage2_lambda_0.1/policy.pt",
+      "status": "PENDING_GPU",
+      "cli": [
+        "python",
+        "scripts/run_stage2_math_ppo.py",
+        "--config",
+        "default",
+        "--steps",
+        "10000"
+      ],
+      "env": {
+        "CTS_ACT_HALTING_PENALTY": "0.1"
+      },
+      "notes": "Stage 2 PPO retrain with act_halting_penalty=0.1. Save the resulting policy/critic state-dict to runs/stage2_lambda_0.1/policy.pt so run_sweep_lambda_halt.py eval-mode picks it up."
+    },
+    {
+      "lambda_halt": 0.5,
+      "ckpt_path": "runs/stage2_lambda_0.5/policy.pt",
+      "status": "PENDING_GPU",
+      "cli": [
+        "python",
+        "scripts/run_stage2_math_ppo.py",
+        "--config",
+        "default",
+        "--steps",
+        "10000"
+      ],
+      "env": {
+        "CTS_ACT_HALTING_PENALTY": "0.5"
+      },
+      "notes": "Stage 2 PPO retrain with act_halting_penalty=0.5. Save the resulting policy/critic state-dict to runs/stage2_lambda_0.5/policy.pt so run_sweep_lambda_halt.py eval-mode picks it up."
+    }
+  ]
+}

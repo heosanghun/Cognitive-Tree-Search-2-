@@ -91,6 +91,7 @@ def download_math_train_prompts(out_dir: Path, n_rows: int = 5000) -> Path:
             for ex in ds:
                 row = {
                     "prompt": ex["problem"],
+                    "solution": ex.get("solution", ""),
                     "subject": sub,
                     "level": ex.get("level", ""),
                     "type": ex.get("type", ""),

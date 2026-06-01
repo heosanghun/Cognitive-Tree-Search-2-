@@ -1,0 +1,66 @@
+Cognitive Tree Search (CTS)
+Copyright 2026 CTS contributors
+
+This product includes software developed for the CTS research codebase.
+Licensed under the Apache License, Version 2.0. See `LICENSE` for the full text.
+
+================================================================================
+Third-party components and data
+================================================================================
+
+This repository's own source code is licensed under Apache License 2.0
+(see `LICENSE`), consistent with `pyproject.toml`.
+
+The following are NOT part of this repository's license grant; users must
+comply with each upstream's terms when downloading or using them.
+
+--------------------------------------------------------------------------------
+Models (weights not included in git)
+--------------------------------------------------------------------------------
+
+  Gemma 4 (e.g. E4B / E4B-it)
+    Source: Google AI / Hugging Face Hub (https://huggingface.co/google)
+    License: Apache 2.0 per Google's Gemma 4 documentation
+             (https://ai.google.dev/gemma/apache_2).
+             Older Gemma variants may fall under the Gemma Terms of Use
+             (https://ai.google.dev/gemma/terms).
+    Note:    Do NOT commit `model.safetensors` to git; download via the
+             Hub or a local snapshot.
+
+--------------------------------------------------------------------------------
+Python libraries
+--------------------------------------------------------------------------------
+
+Runtime dependencies are listed in `pyproject.toml` (e.g. PyTorch,
+Hugging Face transformers / datasets). Each package retains its own license
+(BSD, Apache, MIT, etc.); see each package's PyPI or source repository
+for the exact text.
+
+--------------------------------------------------------------------------------
+Datasets (downloaded by scripts, not shipped in git)
+--------------------------------------------------------------------------------
+
+  MATH-500 (eval split)
+    Hub id: HuggingFaceH4/MATH-500
+    Action: Follow the dataset card and license on Hugging Face.
+
+  OpenMathInstruct-2 (Stage 1 SFT subset, paper §6.1 canonical;
+                      v1 fallback supported by the schema-tolerant loader)
+    Hub id: nvidia/OpenMathInstruct-2 (or -1 fallback)
+    License: NVIDIA dataset license
+             (https://huggingface.co/datasets/nvidia/OpenMathInstruct-1)
+
+  Hendrycks MATH (Stage 2 RL prompts)
+    Hub id: EleutherAI/hendrycks_math
+    Action: Follow the dataset card on Hugging Face.
+
+  GSM8K, AIME, ARC-AGI-Text, HumanEval (eval benchmarks)
+    See each dataset's upstream card for license terms.
+
+--------------------------------------------------------------------------------
+Citation
+--------------------------------------------------------------------------------
+
+When publishing work that uses this codebase, cite the CTS paper
+(once public) and cite Gemma, datasets, and libraries as required by
+their respective authors.

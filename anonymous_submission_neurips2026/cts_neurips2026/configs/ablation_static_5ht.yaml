@@ -1,0 +1,3 @@
+# Ablation: static exploration rate for PUCT / noise (paper §7.4)
+nu_expl_static: 1.0
+ablation_name: static_expl
