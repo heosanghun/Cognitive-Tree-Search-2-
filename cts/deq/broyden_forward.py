@@ -292,10 +292,13 @@ def broyden_fixed_point_batch(
 
     Each branch inherits the same parent_inv_jacobian.
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     W = z0_batch.shape[0]
-    results = []
-    infos = []
-    for i in range(W):
+    results: List[Optional[torch.Tensor]] = [None] * W
+    infos: List[Optional[BroydenInfo]] = [None] * W
+
+    def _solve_branch(i: int) -> None:
         z_star_i, info_i = broyden_fixed_point(
             phi,
             z0_batch[i],
@@ -305,6 +308,10 @@ def broyden_fixed_point_batch(
             fp32_buffer=fp32_buffer,
             memory_limit=memory_limit,
         )
-        results.append(z_star_i)
-        infos.append(info_i)
-    return torch.stack(results), infos
+        results[i] = z_star_i
+        infos[i] = info_i
+
+    with ThreadPoolExecutor(max_workers=W) as executor:
+        list(executor.map(_solve_branch, range(W)))
+
+    return torch.stack(results), infos  # type: ignore[arg-type]

@@ -133,7 +133,10 @@ def apply_paper_lora(
     verbose : bool
         Print a one-line summary of how many modules were wrapped.
     """
-    lm = backbone.cg.model.language_model
+    if hasattr(backbone.cg.model, "language_model"):
+        lm = backbone.cg.model.language_model
+    else:
+        lm = backbone.cg.model
     n_new, n_already = replace_target_linears(
         lm, target_modules, rank=rank, alpha=rank * 2, dropout=dropout
     )

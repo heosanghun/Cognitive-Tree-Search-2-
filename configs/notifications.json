@@ -1,0 +1,19 @@
+{
+  "discord": {
+    "enabled": false,
+    "webhook_url": ""
+  },
+  "slack": {
+    "enabled": false,
+    "webhook_url": ""
+  },
+  "telegram": {
+    "enabled": false,
+    "bot_token": "",
+    "chat_id": ""
+  },
+  "local_log": {
+    "enabled": true,
+    "log_path": "results/post_s2_autopilot/logs/notifications.log"
+  }
+}

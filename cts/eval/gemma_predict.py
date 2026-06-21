@@ -59,7 +59,7 @@ class GemmaTextPredictor:
         Per-call ``max_new_tokens`` overrides the instance default. Optional
         ``temperature`` / ``do_sample`` support SC@14 and BoN@13 baselines.
         """
-        if self.use_chat_template and hasattr(self.tokenizer, "apply_chat_template"):
+        if self.use_chat_template and hasattr(self.tokenizer, "apply_chat_template") and getattr(self.tokenizer, "chat_template", None) is not None:
             messages = [{"role": "user", "content": prompt}]
             raw = self.tokenizer.apply_chat_template(
                 messages,

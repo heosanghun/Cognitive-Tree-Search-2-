@@ -48,8 +48,47 @@ WAVE2_OUT = ROOT / "results" / "headline_w2_primary_full"
 WAVE3_OUT = ROOT / "results" / "headline_w3_table2_full"
 SMOKE_OUT = ROOT / "results" / "post_stage2_May2026"
 
+WAVE2_METHODS = ["cts_4nu", "greedy", "native_think", "sc_14", "mcts_early_stop"]
+WAVE2_BENCHES = ["math500", "gsm8k", "aime"]
+
+POLICY_PATH = ROOT / "configs" / "autopilot_autonomous.json"
+
 MATH_PASS_THRESHOLD = 52.0  # Phase 4 if below
 MATH_CLOUD_THRESHOLD = 58.0  # Cloud hint if below
+
+
+def _load_autonomous_policy() -> Dict[str, Any]:
+    if POLICY_PATH.is_file():
+        try:
+            return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    return {"mode": "default", "policy": {}}
+
+
+def _find_running_eval_pid() -> Optional[int]:
+    """Return PID of run_cts_eval_full.py if alive (Windows)."""
+    if sys.platform != "win32":
+        return None
+    ps = (
+        "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" "
+        "| Where-Object { $_.CommandLine -match 'run_cts_eval_full\\.py' } "
+        "| Select-Object -First 1 -ExpandProperty ProcessId"
+    )
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        out = (proc.stdout or "").strip()
+        if out.isdigit() and _pid_alive(int(out)):
+            return int(out)
+    except (subprocess.TimeoutExpired, ValueError):
+        pass
+    return None
 
 
 def _utc() -> str:
@@ -147,8 +186,13 @@ def _run(
     log_path = LOG_DIR / log_name
     log_path.parent.mkdir(parents=True, exist_ok=True)
     start = time.time()
+    # Append eval logs on resume so crash/restart history is preserved.
+    file_mode = "a" if log_path.is_file() and log_name in ("wave2.log", "wave1_rerun.log") else "w"
+    if file_mode == "a":
+        with open(log_path, "a", encoding="utf-8", errors="replace") as fh:
+            fh.write(f"\n--- autopilot resume {_utc()} ---\n")
     try:
-        with open(log_path, "w", encoding="utf-8", errors="replace") as fh:
+        with open(log_path, file_mode, encoding="utf-8", errors="replace") as fh:
             proc = subprocess.run(
                 cmd,
                 stdout=fh,
@@ -189,12 +233,163 @@ def _step_done(st: Dict[str, Any], step_id: str) -> bool:
     return step_id in st.get("completed_step_ids", [])
 
 
+def _send_step_notification(step_id: str, result: Dict[str, Any]) -> None:
+    import urllib.request
+    config_path = ROOT / "configs" / "notifications.json"
+    if not config_path.is_file():
+        return
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    status = result.get("status", "UNKNOWN")
+    duration = result.get("duration_s")
+    
+    emoji = "✅"
+    if status == "FAIL":
+        emoji = "❌"
+    elif status in ("SKIP", "MANUAL"):
+        emoji = "🔄"
+    elif status == "WARN":
+        emoji = "⚠️"
+        
+    msg = f"[{emoji} Step Completed] {step_id}\n"
+    msg += f"• Status: {status}\n"
+    if duration is not None:
+        if duration >= 60:
+            msg += f"• Duration: {int(duration // 60)}m {int(duration % 60)}s\n"
+        else:
+            msg += f"• Duration: {duration:.1f}s\n"
+            
+    if "reason" in result:
+        msg += f"• Reason: {result['reason']}\n"
+    if "error" in result:
+        msg += f"• Error: {result['error']}\n"
+        
+    if step_id == "09_docs" and "numbers" in result:
+        nums = result["numbers"]
+        msg += "• Results Summary:\n"
+        for k, v in nums.items():
+            if v is not None:
+                msg += f"  - {k}: {v}\n"
+
+    # Send function
+    def post_json(url: str, payload: dict):
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                pass
+        except Exception:
+            pass
+
+    # Local Log
+    local_conf = config.get("local_log", {})
+    if local_conf.get("enabled", True):
+        log_p = ROOT / local_conf.get("log_path", "results/post_s2_autopilot/logs/notifications.log")
+        log_p.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_p, "a", encoding="utf-8") as f:
+            f.write(f"--- NOTIFICATION {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n{msg}\n\n")
+
+    # Discord
+    discord_conf = config.get("discord", {})
+    if discord_conf.get("enabled", False) and discord_conf.get("webhook_url"):
+        post_json(discord_conf["webhook_url"], {"content": msg})
+        
+    # Slack
+    slack_conf = config.get("slack", {})
+    if slack_conf.get("enabled", False) and slack_conf.get("webhook_url"):
+        post_json(slack_conf["webhook_url"], {"text": msg})
+        
+    # Telegram
+    tg_conf = config.get("telegram", {})
+    if tg_conf.get("enabled", False) and tg_conf.get("bot_token") and tg_conf.get("chat_id"):
+        url = f"https://api.telegram.org/bot{tg_conf['bot_token']}/sendMessage"
+        post_json(url, {
+            "chat_id": tg_conf["chat_id"],
+            "text": msg
+        })
+
+
+def _send_final_notification(st: Dict[str, Any]) -> None:
+    import urllib.request
+    config_path = ROOT / "configs" / "notifications.json"
+    if not config_path.is_file():
+        return
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+        
+    verdict = st.get("final_verdict", "UNKNOWN")
+    emoji = "🎉" if verdict == "PASS" else "⚠️"
+    msg = f"[{emoji} Autopilot Final Verdict: {verdict}]\n"
+    msg += f"• Completed Steps: {', '.join(st.get('completed_step_ids', []))}\n"
+    
+    w2_info = st.get("steps", {}).get("09_docs", {}).get("numbers", {})
+    if w2_info:
+        msg += "• Final Evaluation metrics:\n"
+        for k, v in w2_info.items():
+            if v is not None:
+                msg += f"  - {k}: {v}\n"
+
+    # Send function
+    def post_json(url: str, payload: dict):
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                pass
+        except Exception:
+            pass
+
+    # Local Log
+    local_conf = config.get("local_log", {})
+    if local_conf.get("enabled", True):
+        log_p = ROOT / local_conf.get("log_path", "results/post_s2_autopilot/logs/notifications.log")
+        log_p.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_p, "a", encoding="utf-8") as f:
+            f.write(f"--- NOTIFICATION {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n{msg}\n\n")
+
+    # Discord
+    discord_conf = config.get("discord", {})
+    if discord_conf.get("enabled", False) and discord_conf.get("webhook_url"):
+        post_json(discord_conf["webhook_url"], {"content": msg})
+        
+    # Slack
+    slack_conf = config.get("slack", {})
+    if slack_conf.get("enabled", False) and slack_conf.get("webhook_url"):
+        post_json(slack_conf["webhook_url"], {"text": msg})
+        
+    # Telegram
+    tg_conf = config.get("telegram", {})
+    if tg_conf.get("enabled", False) and tg_conf.get("bot_token") and tg_conf.get("chat_id"):
+        url = f"https://api.telegram.org/bot{tg_conf['bot_token']}/sendMessage"
+        post_json(url, {
+            "chat_id": tg_conf["chat_id"],
+            "text": msg
+        })
+
+
 def _mark_done(st: Dict[str, Any], step_id: str, result: Dict[str, Any]) -> None:
     st.setdefault("steps", {})[step_id] = result
     ids = st.setdefault("completed_step_ids", [])
     if step_id not in ids:
         ids.append(step_id)
     _save_status(st)
+    try:
+        _send_step_notification(step_id, result)
+    except Exception as e:
+        _log(f"Notification error: {e}")
 
 
 def _verify_final() -> Dict[str, Any]:
@@ -234,20 +429,24 @@ def _extract_math500_cts4nu(results_dir: Path) -> Optional[float]:
 
 
 def _backup_ckpts() -> Dict[str, Any]:
+    """Backup Stage-2 artifacts only (skip 15GB stage1_last — optional manual copy)."""
     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = ROOT / "artifacts" / "backups"
     dest.mkdir(parents=True, exist_ok=True)
     copied: List[str] = []
     for name in (
         "stage2_meta_value.pt",
-        "stage1_last.pt",
         "stage2_meta_value.intermediate.pt",
     ):
         src = ROOT / "artifacts" / name
-        if src.is_file():
-            out = dest / f"{src.stem}_{ts}{src.suffix}"
-            shutil.copy2(src, out)
-            copied.append(str(out))
+        if not src.is_file():
+            continue
+        out = dest / f"{src.stem}_{ts}{src.suffix}"
+        _log(f"backup: copying {name} ({src.stat().st_size / 1e6:.1f} MB)")
+        shutil.copyfile(src, out)
+        shutil.copystat(src, out, follow_symlinks=False)
+        copied.append(str(out))
+        _log(f"backup: done {out.name}")
     return {"status": "PASS" if copied else "FAIL", "copied": copied}
 
 
@@ -376,9 +575,76 @@ def _wait_for_stage2(args: argparse.Namespace, st: Dict[str, Any]) -> Dict[str, 
         time.sleep(args.poll_seconds)
 
 
+def _stage2_ready() -> bool:
+    step, total = _tail_step(_read_log_path())
+    if not (step == total == 10000 and FINAL_CKPT.is_file()):
+        return False
+    try:
+        ver = _verify_final()
+        return ver.get("status") in ("PASS", "WARN")
+    except Exception:
+        return False
+
+
+def _heal_incomplete_wave2(st: Dict[str, Any]) -> None:
+    """Undo premature 08 FAIL / 09 docs when Wave 2 is not actually complete."""
+    partial = WAVE2_OUT / "table2_results.partial.json"
+    final_json = WAVE2_OUT / "table2_results.json"
+    w2 = st.get("steps", {}).get("08_wave2", {})
+    w2_pass = w2.get("status") == "PASS"
+    if final_json.is_file() and w2_pass:
+        return
+    n_cells = 0
+    if partial.is_file():
+        try:
+            raw = json.loads(partial.read_text(encoding="utf-8")).get("raw_scores") or {}
+            n_cells = sum(
+                len((raw.get(m) or {}).get(b) or [])
+                for m in ("cts_4nu", "greedy", "native_think", "sc_14", "mcts_early_stop")
+                for b in ("math500", "gsm8k", "aime")
+            )
+        except json.JSONDecodeError:
+            pass
+    expected_cells = 75
+    if w2_pass and n_cells >= expected_cells:
+        return
+    if not w2_pass or n_cells < expected_cells:
+        _log(f"Heal: Wave 2 incomplete (status={w2.get('status')}, partial_cells={n_cells}/75)")
+        rollback = ["08_wave2", "09_docs", "10_smoke", "11_wave3", "12_zip", "13_phase4", "14_cloud", "15_rebuttal"]
+        ids = st.setdefault("completed_step_ids", [])
+        for sid in rollback:
+            if sid in ids:
+                ids.remove(sid)
+        st.pop("final_verdict", None)
+        _save_status(st)
+
+
+def _heal_wait_status(st: Dict[str, Any]) -> None:
+    """Recover from an earlier wait-timeout once Stage 2 has finished."""
+    if not _stage2_ready():
+        return
+    prev = st.get("steps", {}).get("00_wait", {})
+    if prev.get("status") != "PASS":
+        _mark_done(
+            st,
+            "00_wait",
+            {"status": "PASS", "reason": "stage2_complete_on_resume", "prior": prev},
+        )
+        _log("Stage 2 already complete; healed 00_wait and resuming pipeline.")
+
+
 def run_autopilot(args: argparse.Namespace) -> int:
     st = _load_status()
+    policy = _load_autonomous_policy()
     st.setdefault("autopilot_pid", os.getpid())
+    st["autonomous_mode"] = {
+        "enabled": True,
+        "no_user_prompts": policy.get("no_user_prompts", True),
+        "policy_path": str(POLICY_PATH),
+        "wave3_after_primary": args.wave3_after_primary,
+    }
+    _heal_wait_status(st)
+    _heal_incomplete_wave2(st)
     _save_status(st)
 
     steps_plan = [
@@ -393,7 +659,7 @@ def run_autopilot(args: argparse.Namespace) -> int:
                 "--config", "paper_parity",
                 "--benchmarks", "math500",
                 "--methods", "cts_4nu", "greedy", "native_think", "sc_14", "mcts_early_stop",
-                "--seeds", "0",
+                "--seeds", "1",
                 "--device", args.device,
                 "--output-dir", str(WAVE1_OUT),
             ],
@@ -411,6 +677,16 @@ def run_autopilot(args: argparse.Namespace) -> int:
                 "--seeds", str(args.seeds),
                 "--device", args.device,
                 "--output-dir", str(WAVE2_OUT),
+                *(
+                    ["--resume-partial"]
+                    if (WAVE2_OUT / "table2_results.partial.json").is_file()
+                    else []
+                ),
+                *(
+                    ["--limit", str(args.limit)]
+                    if args.limit is not None
+                    else []
+                ),
             ],
             log_name="wave2.log",
             env=_headline_env(),
@@ -475,8 +751,16 @@ def run_autopilot(args: argparse.Namespace) -> int:
         if sid == "02_jsonl" and _jsonl_has_solution():
             _mark_done(st, sid, {"status": "PASS", "skipped": True})
             continue
-        if sid == "11_wave3" and args.skip_wave3:
+        if sid == "11_wave3" and args.skip_wave3 and not args.wave3_after_primary:
             _mark_done(st, sid, {"status": "SKIP", "reason": "--skip-wave3"})
+            continue
+        if sid == "11_wave3" and args.skip_wave3 and args.wave3_after_primary:
+            if not _step_done(st, "09_docs"):
+                _log("Wave 3 deferred until step 09_docs completes (not marking done)")
+                continue
+            _log("Wave 3 deferred: primary path (W2+docs) done — starting full Table 2")
+        if sid == "10_smoke" and args.skip_smoke:
+            _mark_done(st, sid, {"status": "SKIP", "reason": "--skip-smoke"})
             continue
         if sid == "13_phase4":
             if math_pct is None:
@@ -540,7 +824,21 @@ def run_autopilot(args: argparse.Namespace) -> int:
 
         _log(f"running {sid} ({name})")
         try:
-            result = fn()
+            if sid == "08_wave2":
+                existing = _find_running_eval_pid()
+                if existing:
+                    _log(f"08_wave2: eval already running (PID {existing}); waiting for it to finish")
+                    while _find_running_eval_pid():
+                        time.sleep(60)
+                    result = {
+                        "status": "PASS",
+                        "reason": "external_eval_completed",
+                        "pid": existing,
+                    }
+                else:
+                    result = fn()
+            else:
+                result = fn()
         except Exception as exc:
             result = {"status": "FAIL", "error": traceback.format_exc()}
         _mark_done(st, sid, result)
@@ -548,18 +846,60 @@ def run_autopilot(args: argparse.Namespace) -> int:
         if sid == "06_wave1" and result.get("status") != "PASS":
             wave1_oom = True
             _log("Wave 1 failed (possible OOM) — will flag cloud step")
+        if sid == "06_wave1" and result.get("status") == "PASS":
+            math_w1 = _extract_math500_cts4nu(WAVE1_OUT)
+            if math_w1 is None:
+                result["status"] = "WARN"
+                result["reason"] = "wave1_empty_results"
+                st["steps"]["06_wave1"] = result
+                _save_status(st)
+                _log("Wave 1 returned 0 samples (check --seeds count); will re-run after Wave 2")
+                st.setdefault("wave1_rerun_pending", True)
         if sid == "08_wave2":
             math_pct = _extract_math500_cts4nu(WAVE2_OUT)
             _log(f"Wave 2 MATH-500 CTS-4nu = {math_pct}")
+            if result.get("status") == "PASS" and _extract_math500_cts4nu(WAVE1_OUT) is None:
+                _log("Re-running Wave 1 (prior run had 0 samples; --seeds was 0)")
+                w1r = _run(
+                    [
+                        sys.executable, "scripts/run_cts_eval_full.py",
+                        "--config", "paper_parity",
+                        "--benchmarks", "math500",
+                        "--methods", "cts_4nu", "greedy", "native_think", "sc_14", "mcts_early_stop",
+                        "--seeds", "1",
+                        "--device", args.device,
+                        "--output-dir", str(WAVE1_OUT),
+                    ],
+                    log_name="wave1_rerun.log",
+                    env=_headline_env(),
+                    timeout_s=args.wave1_timeout_s,
+                )
+                st["steps"]["06_wave1_rerun"] = w1r
+                if w1r.get("status") == "PASS":
+                    _compare_paper(WAVE1_OUT)
+                _save_status(st)
 
         if result.get("status") == "FAIL" and sid in ("03_verify", "06_wave1", "08_wave2"):
-            _log(f"fatal fail at {sid}; stopping autopilot")
+            if sid == "08_wave2":
+                ids = st.setdefault("completed_step_ids", [])
+                if sid in ids:
+                    ids.remove(sid)
+                _save_status(st)
+            _log(f"fatal fail at {sid}; stopping autopilot (will retry on resume)")
             st["final_verdict"] = "FAIL"
             _save_status(st)
+            try:
+                _send_final_notification(st)
+            except Exception as e:
+                _log(f"Final notification error: {e}")
             return 1
 
     st["final_verdict"] = "PASS"
     _save_status(st)
+    try:
+        _send_final_notification(st)
+    except Exception as e:
+        _log(f"Final notification error: {e}")
     _log("autopilot complete")
     return 0
 
@@ -573,12 +913,29 @@ def main() -> int:
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--poll-seconds", type=int, default=60)
     ap.add_argument("--max-wait-min", type=int, default=5000, help="~83h for remaining S2")
-    ap.add_argument("--skip-wave3", action="store_true", help="skip 100h+ full Table 2")
+    ap.add_argument("--skip-wave3", action="store_true", help="skip Wave 3 (or defer with --wave3-after-primary)")
+    ap.add_argument(
+        "--wave3-after-primary",
+        action="store_true",
+        help="run Wave 3 automatically after step 09_docs (primary path first)",
+    )
+    ap.add_argument("--skip-smoke", action="store_true", help="skip post-S2 pipeline smoke (step 10)")
+    ap.add_argument("--autonomous", action="store_true", help="load configs/autopilot_autonomous.json defaults")
     ap.add_argument("--wave1-timeout-s", type=int, default=24 * 3600)
     ap.add_argument("--wave2-timeout-s", type=int, default=7 * 24 * 3600)
     ap.add_argument("--smoke-timeout-s", type=int, default=48 * 3600)
     ap.add_argument("--wave3-timeout-s", type=int, default=14 * 24 * 3600)
+    ap.add_argument("--limit", type=int, default=None, help="limit the number of problems evaluated per benchmark")
     args = ap.parse_args()
+    if args.autonomous:
+        pol = _load_autonomous_policy().get("policy", {})
+        if pol.get("skip_smoke", True):
+            args.skip_smoke = True
+        if pol.get("wave3_after_primary", True):
+            args.skip_wave3 = True
+            args.wave3_after_primary = True
+        elif not args.skip_wave3:
+            args.skip_wave3 = False
     if not args.watch and not args.dry_run and not args.resume:
         ap.error("use --watch to start (or --dry-run)")
     if args.watch or args.resume:

@@ -1,0 +1,24 @@
+{
+  "mode": "full_autonomous",
+  "no_user_prompts": true,
+  "updated_at_utc": "2026-06-06T00:00:00+00:00",
+  "policy": {
+    "restart_eval_on_stall_min": 60,
+    "watchdog_poll_min": 10,
+    "wave3_after_primary": true,
+    "skip_smoke": true,
+    "phase4_if_math_below_pct": 52.0,
+    "cloud_manual_only": true,
+    "auto_wave1_rerun_after_wave2": true,
+    "auto_docs_zip_rebuttal": true
+  },
+  "chain_after_wave2": [
+    "06_wave1_rerun",
+    "09_docs",
+    "12_zip",
+    "13_phase4_if_needed",
+    "11_wave3_if_deferred",
+    "15_rebuttal"
+  ],
+  "notes": "Cloud (14) writes marker only; no interactive prompts in autopilot."
+}

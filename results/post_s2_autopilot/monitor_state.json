@@ -1,0 +1,14 @@
+{
+  "notified_step_ids": [
+    "00_wait",
+    "01_audit",
+    "02_jsonl",
+    "03_verify",
+    "04_backup",
+    "05_env",
+    "06_wave1",
+    "07_compare_w1",
+    "08_wave2"
+  ],
+  "final_notified": false
+}

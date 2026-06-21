@@ -160,7 +160,7 @@ def transition(
     with torch.no_grad():
         alpha = routing_weights(z_star, w_g, nu.nu_temp)
         mw = alpha if routing_mode == "dense" else sparse_module_weights(alpha, top_k)
-        for i in range(19):
+        for i in range(len(mw)):
             flops += float(mw[i].item()) * macs[i] * nu.nu_act
     budget.flops_spent_step = flops
     budget.mac_accumulated += flops
@@ -315,7 +315,7 @@ def transition_batch(
         with torch.no_grad():
             alpha = routing_weights(z_star, w_g, nu.nu_temp)
             mw = alpha if routing_mode == "dense" else sparse_module_weights(alpha, top_k)
-            for i in range(19):
+            for i in range(len(mw)):
                 flops += float(mw[i].item()) * macs[i] * nu.nu_act
         b.flops_spent_step = flops
         b.mac_accumulated += flops

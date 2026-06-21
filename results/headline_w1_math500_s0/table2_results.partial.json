@@ -1,0 +1,38 @@
+{
+  "partial": true,
+  "wrote_at_utc": "2026-06-21T05:06:05Z",
+  "table2": {
+    "cts_4nu": {
+      "math500": {
+        "mean": 0.116,
+        "std": 0.0,
+        "ci_lower": 0.116,
+        "ci_upper": 0.116,
+        "n_samples": 1
+      }
+    },
+    "greedy": {},
+    "native_think": {},
+    "sc_14": {},
+    "mcts_early_stop": {}
+  },
+  "raw_scores": {
+    "cts_4nu": {
+      "math500": [
+        0.116
+      ]
+    },
+    "greedy": {
+      "math500": []
+    },
+    "native_think": {
+      "math500": []
+    },
+    "sc_14": {
+      "math500": []
+    },
+    "mcts_early_stop": {
+      "math500": []
+    }
+  }
+}

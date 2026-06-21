@@ -1,0 +1,47 @@
+{
+  "cts_4nu": {
+    "math500": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0,
+      "n_samples": 0
+    }
+  },
+  "greedy": {
+    "math500": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0,
+      "n_samples": 0
+    }
+  },
+  "native_think": {
+    "math500": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0,
+      "n_samples": 0
+    }
+  },
+  "sc_14": {
+    "math500": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0,
+      "n_samples": 0
+    }
+  },
+  "mcts_early_stop": {
+    "math500": {
+      "mean": 0.0,
+      "std": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0,
+      "n_samples": 0
+    }
+  }
+}

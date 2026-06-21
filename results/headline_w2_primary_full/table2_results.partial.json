@@ -1,0 +1,238 @@
+{
+  "partial": true,
+  "wrote_at_utc": "2026-06-20T15:58:38Z",
+  "table2": {
+    "cts_4nu": {
+      "math500": {
+        "mean": 0.1,
+        "std": 0.0,
+        "ci_lower": 0.1,
+        "ci_upper": 0.1,
+        "n_samples": 5
+      },
+      "gsm8k": {
+        "mean": 0.18,
+        "std": 0.0,
+        "ci_lower": 0.18,
+        "ci_upper": 0.18,
+        "n_samples": 5
+      },
+      "aime": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_samples": 5
+      }
+    },
+    "greedy": {
+      "math500": {
+        "mean": 0.2,
+        "std": 0.0,
+        "ci_lower": 0.2,
+        "ci_upper": 0.2,
+        "n_samples": 5
+      },
+      "gsm8k": {
+        "mean": 0.3,
+        "std": 0.0,
+        "ci_lower": 0.3,
+        "ci_upper": 0.3,
+        "n_samples": 5
+      },
+      "aime": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_samples": 5
+      }
+    },
+    "native_think": {
+      "math500": {
+        "mean": 0.11200000000000002,
+        "std": 0.06260990336999411,
+        "ci_lower": 0.05600000000000001,
+        "ci_upper": 0.14,
+        "n_samples": 5
+      },
+      "gsm8k": {
+        "mean": 0.38,
+        "std": 0.0,
+        "ci_lower": 0.38,
+        "ci_upper": 0.38,
+        "n_samples": 5
+      },
+      "aime": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_samples": 5
+      }
+    },
+    "sc_14": {
+      "math500": {
+        "mean": 0.344,
+        "std": 0.03286335345030996,
+        "ci_lower": 0.32,
+        "ci_upper": 0.368,
+        "n_samples": 5
+      },
+      "gsm8k": {
+        "mean": 0.556,
+        "std": 0.0589915248150105,
+        "ci_lower": 0.516,
+        "ci_upper": 0.6000000000000001,
+        "n_samples": 5
+      },
+      "aime": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_samples": 5
+      }
+    },
+    "mcts_early_stop": {
+      "math500": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_samples": 5
+      },
+      "gsm8k": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_samples": 5
+      },
+      "aime": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "n_samples": 5
+      }
+    }
+  },
+  "raw_scores": {
+    "cts_4nu": {
+      "math500": [
+        0.1,
+        0.1,
+        0.1,
+        0.1,
+        0.1
+      ],
+      "gsm8k": [
+        0.18,
+        0.18,
+        0.18,
+        0.18,
+        0.18
+      ],
+      "aime": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "greedy": {
+      "math500": [
+        0.2,
+        0.2,
+        0.2,
+        0.2,
+        0.2
+      ],
+      "gsm8k": [
+        0.3,
+        0.3,
+        0.3,
+        0.3,
+        0.3
+      ],
+      "aime": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "native_think": {
+      "math500": [
+        0.14,
+        0.14,
+        0.14,
+        0.14,
+        0.0
+      ],
+      "gsm8k": [
+        0.38,
+        0.38,
+        0.38,
+        0.38,
+        0.38
+      ],
+      "aime": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "sc_14": {
+      "math500": [
+        0.32,
+        0.32,
+        0.38,
+        0.38,
+        0.32
+      ],
+      "gsm8k": [
+        0.48,
+        0.64,
+        0.54,
+        0.58,
+        0.54
+      ],
+      "aime": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "mcts_early_stop": {
+      "math500": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gsm8k": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "aime": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

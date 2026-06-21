@@ -46,3 +46,20 @@ def module_for_layer(layer_idx: int) -> int:
 
 def layers_for_module(module_idx: int) -> List[int]:
     return [l for l, mo in LAYER_TO_MODULE.items() if mo == module_idx]
+
+
+# Qwen2.5-7B has 28 layers -> 14 modules (2 layers per module)
+QWEN_LAYER_TO_MODULE: Dict[int, int] = {i: i // 2 for i in range(28)}
+
+
+def qwen_module_for_layer(layer_idx: int) -> int:
+    if layer_idx < 0 or layer_idx > 27:
+        raise IndexError(f"Qwen layer_idx {layer_idx} out of 0..27")
+    return QWEN_LAYER_TO_MODULE[layer_idx]
+
+
+def qwen_layers_for_module(module_idx: int) -> List[int]:
+    if module_idx < 0 or module_idx > 13:
+        raise IndexError(f"Qwen module_idx {module_idx} out of 0..13")
+    return [l for l, mo in QWEN_LAYER_TO_MODULE.items() if mo == module_idx]
+

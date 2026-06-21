@@ -2,16 +2,166 @@
   "started_at_utc": "2026-05-21T01:35:29+00:00",
   "steps": {
     "00_wait": {
-      "status": "FAIL",
-      "reason": "timeout",
-      "elapsed_min": 5000.276773178577
+      "status": "PASS",
+      "reason": "stage2_complete_on_resume",
+      "prior": {
+        "status": "FAIL",
+        "reason": "timeout",
+        "elapsed_min": 5000.276773178577
+      }
+    },
+    "01_audit": {
+      "status": "PASS",
+      "skipped": true
+    },
+    "02_jsonl": {
+      "status": "PASS",
+      "skipped": true
+    },
+    "03_verify": {
+      "status": "PASS",
+      "duration_s": 0.0,
+      "details": {
+        "ckpt_path": "/workspace/artifacts/stage2_meta_value.pt",
+        "size_mb": 27.54,
+        "top_level_keys": [
+          "meta_policy_state_dict",
+          "critic_state_dict",
+          "value_head_state_dict",
+          "meta",
+          "critic_z",
+          "value_head",
+          "config_name",
+          "W",
+          "text_dim",
+          "training_meta"
+        ],
+        "collect_batch": 64,
+        "ppo_epochs": 4,
+        "paper_faithful": true,
+        "explicit_paper_faithful": true,
+        "has_training_meta": true,
+        "training_meta": {
+          "total_steps": 10000,
+          "collect_batch": 64,
+          "ppo_epochs": 4,
+          "actor_lr": 3e-05,
+          "critic_lr": 0.0001,
+          "lambda_halt": 0.05,
+          "paper_faithful_p0_4": true
+        }
+      }
+    },
+    "04_backup": {
+      "status": "PASS",
+      "copied": [
+        "/workspace/artifacts/backups/stage2_meta_value_20260603_203757.pt",
+        "/workspace/artifacts/backups/stage1_last_20260603_203757.pt",
+        "/workspace/artifacts/backups/stage2_meta_value.intermediate_20260603_203757.pt"
+      ]
+    },
+    "05_env": {
+      "status": "PASS",
+      "env": "CTS_EVAL_TAU_CAP=1e14"
+    },
+    "06_wave1": {
+      "status": "PASS",
+      "returncode": 0,
+      "duration_s": 3.83,
+      "log_path": "/workspace/results/post_s2_autopilot/logs/wave1.log",
+      "cmd": [
+        "python",
+        "scripts/run_cts_eval_full.py",
+        "--config",
+        "paper_parity",
+        "--benchmarks",
+        "math500",
+        "--methods",
+        "cts_4nu",
+        "greedy",
+        "native_think",
+        "sc_14",
+        "mcts_early_stop",
+        "--seeds",
+        "0",
+        "--device",
+        "cuda:0",
+        "--output-dir",
+        "/workspace/results/headline_w1_math500_s0"
+      ]
+    },
+    "07_compare_w1": {
+      "status": "PASS",
+      "returncode": 0,
+      "duration_s": 0.09,
+      "log_path": "/workspace/results/post_s2_autopilot/logs/compare_headline_w1_math500_s0.log",
+      "cmd": [
+        "python",
+        "scripts/compare_to_paper_table2.py",
+        "/workspace/results/headline_w1_math500_s0",
+        "--out",
+        "/workspace/results/headline_w1_math500_s0/PAPER_COMPARE.md"
+      ]
+    },
+    "08_wave2": {
+      "status": "PASS",
+      "returncode": 0,
+      "duration_s": 365265.43,
+      "log_path": "/workspace/results/post_s2_autopilot/logs/wave2.log",
+      "cmd": [
+        "/opt/conda/bin/python",
+        "scripts/run_cts_eval_full.py",
+        "--config",
+        "paper_parity",
+        "--benchmarks",
+        "math500",
+        "gsm8k",
+        "aime",
+        "--methods",
+        "cts_4nu",
+        "greedy",
+        "native_think",
+        "sc_14",
+        "mcts_early_stop",
+        "--seeds",
+        "5",
+        "--device",
+        "cuda:4",
+        "--output-dir",
+        "/workspace/results/headline_w2_primary_full",
+        "--resume-partial",
+        "--limit",
+        "50"
+      ]
+    },
+    "09_docs": {
+      "status": "PASS",
+      "numbers": {
+        "math500_cts4nu_pct": null,
+        "gsm8k_cts4nu_pct": null,
+        "aime_cts4nu_pct": null,
+        "wave2_dir": "/workspace/results/headline_w2_primary_full",
+        "updated_at_utc": "2026-06-06T11:38:32+00:00"
+      }
+    },
+    "10_smoke": {
+      "status": "SKIP",
+      "reason": "--skip-smoke"
     }
   },
   "completed_step_ids": [
-    "00_wait"
+    "00_wait",
+    "01_audit",
+    "02_jsonl",
+    "03_verify",
+    "04_backup",
+    "05_env",
+    "06_wave1",
+    "07_compare_w1",
+    "08_wave2"
   ],
   "autopilot_pid": 32908,
-  "updated_at_utc": "2026-05-24T12:55:54+00:00",
+  "updated_at_utc": "2026-06-20T15:58:39+00:00",
   "heartbeat": {
     "phase": "wait_stage2",
     "step": 7940,
@@ -19,5 +169,221 @@
     "pid": 37264,
     "pid_alive": true,
     "elapsed_min": 5000.3
-  }
+  },
+  "autonomous_mode": {
+    "enabled": true,
+    "no_user_prompts": true,
+    "policy_path": "/workspace/configs/autopilot_autonomous.json",
+    "wave3_after_primary": true
+  },
+  "watchdog_restarts": [
+    {
+      "at_utc": "2026-06-06T11:38:28+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T11:48:34+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T11:58:38+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T12:08:42+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T12:18:47+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T12:28:51+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T12:38:54+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T12:48:59+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T12:59:03+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T13:09:06+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T13:19:10+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T13:29:15+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T13:39:19+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T13:49:23+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T13:59:52+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T14:10:07+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T14:20:12+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T14:30:16+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T14:40:20+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T14:50:25+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T15:00:30+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T15:10:34+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T15:20:39+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T15:30:43+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T15:40:47+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T15:50:52+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T16:00:56+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T16:11:01+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T16:21:05+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T16:31:09+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T16:41:14+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T16:51:18+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T17:01:22+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T17:11:26+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T17:21:31+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T17:31:35+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T17:41:39+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T17:51:43+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-06T18:01:50+00:00",
+      "reason": "autopilot_dead_post_wave2"
+    },
+    {
+      "at_utc": "2026-06-10T02:00:59+00:00",
+      "reason": "wave2_stalled stale=1356min ap=True ev=False prob=37/1319"
+    },
+    {
+      "at_utc": "2026-06-12T04:54:03+00:00",
+      "reason": "wave2_stalled stale=21min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-12T05:07:05+00:00",
+      "reason": "wave2_stalled stale=34min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-12T05:20:07+00:00",
+      "reason": "wave2_stalled stale=47min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-12T05:33:09+00:00",
+      "reason": "wave2_stalled stale=60min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-12T05:46:11+00:00",
+      "reason": "wave2_stalled stale=74min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-12T05:59:13+00:00",
+      "reason": "wave2_stalled stale=87min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-12T06:10:18+00:00",
+      "reason": "wave2_stalled stale=99min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-13T06:25:39+00:00",
+      "reason": "wave2_stalled stale=20min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-13T07:19:49+00:00",
+      "reason": "wave2_stalled stale=21min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-13T08:37:18+00:00",
+      "reason": "wave2_stalled stale=20min ap=False ev=False prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-14T08:38:24+00:00",
+      "reason": "wave2_stalled stale=22min ap=True ev=True prob=0/0"
+    },
+    {
+      "at_utc": "2026-06-15T01:39:17+00:00",
+      "reason": "wave2_stalled stale=70min ap=False ev=False prob=0/0"
+    }
+  ]
 }

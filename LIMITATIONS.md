@@ -141,25 +141,16 @@ the pending paper-backbone re-measurement is a known caveat).
 
 ---
 
-## 5. Coconut, Recurrent Depth, BoN@13, Bandit baselines: not paper-faithful
+## 5. Coconut and Recurrent Depth baselines: missing
 
-**Limitation**: Of the 14 paper Table 2 baselines, the following 4
-are *not paper-faithful* in our codebase &mdash; **2 are missing
-outright** (no dispatcher entry) and **2 ship as proxies with
-documented gaps** (dispatcher entry exists but does not match the
-paper protocol):
+**Limitation**: Of the 14 paper Table 2 baselines, the following 2
+are *missing outright* (no dispatcher entry):
 
 - **Missing (no dispatcher entry):**
   - COCONUT (Gemma-4-E4B reproduction) &mdash; paper Table 2 row 6
   - Recurrent Depth (Gemma-4-E4B) &mdash; paper Table 2 row 7
-- **Proxy (dispatcher entry exists, gap explicitly named):**
-  - BoN@13 (Critic-best argmax) &mdash; paper Table 2 row 10:
-    selector uses *longest-well-formed-chain* in place of
-    Neuro-Critic V<sub>&psi;</sub> scoring
-  - UCB1 Bandit (20-bin &nu;, c=&radic;2) &mdash; paper Table 2 row 11:
-    routed through `cts_full_episode` with `nu_config_mode="1nu"`
-    (only &nu;<sub>expl</sub> live) instead of a dedicated 20-arm
-    UCB1 module
+
+Note: BoN@13 (Critic-best argmax) and UCB1 Bandit (20-bin $\nu$, $c=\sqrt{2}$), which were previously listed as proxies with gaps, have been fully upgraded to their paper-faithful implementations (using Neuro-Critic $V_\psi$ scoring and a dedicated 20-arm bandit module respectively).
 
 **What we have done**:
 
@@ -167,24 +158,18 @@ paper protocol):
   explicitly in
   [`results/table2/PAPER_VS_LOCAL.md`](results/table2/PAPER_VS_LOCAL.md)
   &sect;"Table 2 baseline implementation status" &mdash; a 14-row
-  per-method table that splits the 14 rows into **10 &#9989;
-  paper-faithful** (rows 1-5, 8-9, 12-14) + **2 &#9888;&#65039; proxy
-  with documented gap** (rows 10-11) + **2 &#10060; missing** (rows
+  per-method table that splits the 14 rows into **12 &#9989;
+  paper-faithful** (rows 1-5, 8-14) + **2 &#10060; missing** (rows
   6-7).
-- The 12 wired dispatcher paths (10 paper-faithful + 2 proxy) are in
+- The 12 wired dispatcher paths are in
   [`scripts/run_cts_eval_full.py`](scripts/run_cts_eval_full.py)
   (`_run_cts_on_problems`) and verified by
   [`tests/test_baseline_dispatchers.py`](tests/test_baseline_dispatchers.py).
-  The 2 proxy entries are additionally documented at the dispatcher
-  call-site (inline comments at the `bon_13` and `bandit_ucb1`
-  branches) and in [`CHANGELOG.md`](CHANGELOG.md) D1 P1
-  baseline-dispatcher sweep.
 
 **What we do *not* claim**: We do not claim the 2 missing baselines
-or the 2 proxy baselines are paper-faithful. The 2 missing rows
-will land at camera-ready as new dispatcher entries; the 2 proxy
-rows will land at camera-ready as paper-faithful upgrades of their
-existing dispatcher entries.
+are paper-faithful. The 2 missing rows will land at camera-ready as
+new dispatcher entries.
+
 
 ---
 

@@ -102,6 +102,7 @@ def run_single_evaluation(
     model_dir: Optional[str] = None,
     limit: Optional[int] = None,
     nu_trace_dir: Optional[Path] = None,
+    model_name: str = "gemma",
 ) -> Dict[str, Any]:
     """Run a single evaluation and return scores.
 
@@ -127,7 +128,7 @@ def run_single_evaluation(
         if benchmark == "math500":
             from cts.eval.math500 import load_math_samples
             problems = load_math_samples(data_root / "math500" / "test.jsonl", limit=limit)
-            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir)
+            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir, model_name=model_name)
             result["accuracy"] = sum(scores) / max(len(scores), 1)
             result["scores"] = scores
 
@@ -136,14 +137,14 @@ def run_single_evaluation(
             problems = load_gsm8k_jsonl(data_root / "gsm8k" / "test.jsonl")
             if limit:
                 problems = problems[:limit]
-            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir)
+            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir, model_name=model_name)
             result["accuracy"] = sum(scores) / max(len(scores), 1)
             result["scores"] = scores
 
         elif benchmark == "aime":
             from cts.eval.math500 import load_math_samples
             problems = load_math_samples(data_root / "aime" / "test.jsonl", limit=limit)
-            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir)
+            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir, model_name=model_name)
             result["accuracy"] = sum(scores) / max(len(scores), 1) if scores else 0.0
             result["scores"] = scores
 
@@ -156,14 +157,14 @@ def run_single_evaluation(
             problems = load_math_samples(data_root / "aime" / "test_aime_90.jsonl", limit=limit)
             # Internal benchmark slot is still 'aime' for the predictor cache key
             # (same answer-extraction logic, same max_new_tokens budget).
-            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark="aime", seed=seed, nu_trace_dir=nu_trace_dir)
+            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark="aime", seed=seed, nu_trace_dir=nu_trace_dir, model_name=model_name)
             result["accuracy"] = sum(scores) / max(len(scores), 1) if scores else 0.0
             result["scores"] = scores
 
         elif benchmark == "arc_agi_text":
             from cts.eval.arc_agi_text import load_arc_text_samples
             problems = load_arc_text_samples(data_root / "arc_agi" / "test.jsonl", limit=limit)
-            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir)
+            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir, model_name=model_name)
             result["accuracy"] = sum(scores) / max(len(scores), 1)
             result["scores"] = scores
 
@@ -172,7 +173,7 @@ def run_single_evaluation(
             problems = load_humaneval_jsonl(data_root / "humaneval" / "test.jsonl")
             if limit:
                 problems = problems[:limit]
-            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir)
+            scores = _run_cts_on_problems(method, problems, cfg, device, model_dir, benchmark=benchmark, seed=seed, nu_trace_dir=nu_trace_dir, model_name=model_name)
             result["accuracy"] = sum(scores) / max(len(scores), 1)
             result["scores"] = scores
 
@@ -189,21 +190,37 @@ def run_single_evaluation(
 _loaded_predictor = None
 _loaded_backbone = None
 _loaded_tok = None
+_loaded_model_name = None
 _loaded_ft_nt_predictor = None
 
 
-def _get_predictor(device: str, model_dir: Optional[str]):
-    global _loaded_predictor, _loaded_backbone, _loaded_tok
-    if _loaded_predictor is None:
+def _get_predictor(device: str, model_dir: Optional[str], model_name: str = "gemma"):
+    global _loaded_predictor, _loaded_backbone, _loaded_tok, _loaded_model_name
+    if _loaded_predictor is None or _loaded_model_name != model_name:
         import torch
         from cts.eval.gemma_predict import GemmaTextPredictor
-        from cts.model.gemma_loader import load_gemma4_e4b
-        mid = model_dir or os.environ.get("CTS_GEMMA_MODEL_DIR", "google/gemma-4-E4B")
-        model, tok = load_gemma4_e4b(model_id=mid, device_map=device, torch_dtype=torch.bfloat16)
+        if model_name == "qwen2.5-7b":
+            from cts.model.qwen_loader import load_qwen2_5_7b
+            mid = model_dir or os.environ.get("CTS_QWEN_MODEL_DIR", "Qwen/Qwen2.5-7B")
+            model, tok = load_qwen2_5_7b(model_id=mid, device_map=device, torch_dtype=torch.bfloat16)
+        else:
+            from cts.model.gemma_loader import load_gemma4_e4b
+            mid = model_dir or os.environ.get("CTS_GEMMA_MODEL_DIR", "google/gemma-4-E4B")
+            model, tok = load_gemma4_e4b(model_id=mid, device_map=device, torch_dtype=torch.bfloat16)
         _loaded_backbone = model
         _loaded_tok = tok
         _loaded_predictor = GemmaTextPredictor(model, tok, max_new_tokens=512, device=device)
+        _loaded_model_name = model_name
     return _loaded_predictor, _loaded_backbone, _loaded_tok
+
+
+def _get_backbone(model_name: str, model: Any, tok: Any) -> Any:
+    if model_name == "qwen2.5-7b":
+        from cts.backbone.qwen_adapter import QwenCTSBackbone
+        return QwenCTSBackbone(model, tok)
+    else:
+        from cts.backbone.gemma_adapter import GemmaCTSBackbone
+        return GemmaCTSBackbone(model, tok)
 
 
 def _get_ft_nt_predictor(device: str, model_dir: Optional[str], cfg: dict):
@@ -574,6 +591,7 @@ def _run_cts_on_problems(
     benchmark: str = "math500",
     seed: int = 0,
     nu_trace_dir: Optional[Path] = None,
+    model_name: str = "gemma",
 ) -> List[float]:
     """Run CTS or baseline evaluation on a list of problems.
 
@@ -600,7 +618,7 @@ def _run_cts_on_problems(
     if not problems:
         return []
 
-    predictor, model, tok = _get_predictor(device, model_dir)
+    predictor, model, tok = _get_predictor(device, model_dir, model_name=model_name)
     pred_max_tok = _max_tokens_for(benchmark)
 
     scores: List[float] = []
@@ -627,10 +645,9 @@ def _run_cts_on_problems(
             )
 
     elif method in ("cts_4nu", "cts_2nu", "deq_only"):
-        from cts.backbone.gemma_adapter import GemmaCTSBackbone
         from cts.types import NuVector, RuntimeBudgetState
 
-        bb = GemmaCTSBackbone(model, tok)
+        bb = _get_backbone(model_name, model, tok)
         bb.eval()
         stage1_ckpt = Path("artifacts/stage1_last.pt")
         if stage1_ckpt.exists():
@@ -673,15 +690,23 @@ def _run_cts_on_problems(
                     require_match=True,
                     verbose=True,
                 )
-            missing, unexpected = bb.load_state_dict(sd, strict=False)
-            if unexpected:
-                # Surface obvious mismatches; keep the head short so the
-                # console isn't drowned during a 164-problem HumanEval
-                # sweep.
-                print(
-                    f"  [stage1-load] unexpected keys ({len(unexpected)} hidden, "
-                    f"head 3): {unexpected[:3]}", flush=True,
-                )
+            is_qwen = "qwen" in str(model_name).lower()
+            is_gemma_ckpt = any("language_model" in k for k in sd) if isinstance(sd, dict) else False
+            if is_qwen and is_gemma_ckpt:
+                print(f"  [INFO] Skipping Gemma stage1 checkpoint {stage1_ckpt} for Qwen backbone.", flush=True)
+            else:
+                try:
+                    missing, unexpected = bb.load_state_dict(sd, strict=False)
+                    if unexpected:
+                        # Surface obvious mismatches; keep the head short so the
+                        # console isn't drowned during a 164-problem HumanEval
+                        # sweep.
+                        print(
+                            f"  [stage1-load] unexpected keys ({len(unexpected)} hidden, "
+                            f"head 3): {unexpected[:3]}", flush=True,
+                        )
+                except RuntimeError as e:
+                    print(f"  [WARN] Skipping backbone state_dict loading due to size mismatch: {e}", flush=True)
 
         K = int(cfg.get("soft_thought_K", 64))
         H = bb.hidden_size
@@ -747,9 +772,17 @@ def _run_cts_on_problems(
                 loaded_mp = meta_state is not None
                 loaded_cr = critic_state is not None
                 if loaded_mp:
-                    meta_policy.load_state_dict(meta_state, strict=False)
+                    try:
+                        meta_policy.load_state_dict(meta_state, strict=False)
+                    except RuntimeError as e:
+                        print(f"  [WARN] Skipping MetaPolicy checkpoint loading due to size mismatch: {e}", flush=True)
+                        loaded_mp = False
                 if loaded_cr:
-                    critic.load_state_dict(critic_state, strict=False)
+                    try:
+                        critic.load_state_dict(critic_state, strict=False)
+                    except RuntimeError as e:
+                        print(f"  [WARN] Skipping Critic checkpoint loading due to size mismatch: {e}", flush=True)
+                        loaded_cr = False
                 print(
                     f"  [ckpt] stage1={stage1_ckpt_present} stage2={stage2_ckpt_present} "
                     f"(meta_policy={loaded_mp}, critic={loaded_cr})", flush=True,
@@ -993,12 +1026,16 @@ def _run_cts_on_problems(
         from pathlib import Path as _Path
 
         stage1_ckpt = _Path("artifacts/stage1_last.pt")
-        if not stage1_ckpt.exists():
-            print(
-                f"  [WARN] ft_nt: stage1 checkpoint missing at {stage1_ckpt}; "
-                f"falling back to bare native_think baseline.",
-                flush=True,
-            )
+        is_qwen = "qwen" in (model_name or "").lower() or "qwen" in type(model).__name__.lower()
+        if is_qwen or not stage1_ckpt.exists():
+            if is_qwen:
+                print("  [INFO] ft_nt: Qwen model detected; falling back to bare native_think.", flush=True)
+            else:
+                print(
+                    f"  [WARN] ft_nt: stage1 checkpoint missing at {stage1_ckpt}; "
+                    f"falling back to bare native_think baseline.",
+                    flush=True,
+                )
             ft_predictor = predictor
         else:
             try:
@@ -1202,12 +1239,11 @@ def _run_cts_on_problems(
         # tighter eval_tau (30% of the standard cap) AND
         # nu_config_mode="2nu_fast" to disable the learned ACT halting
         # signal (since early-stop replaces it).
-        from cts.backbone.gemma_adapter import GemmaCTSBackbone
         from cts.critic.neuro_critic import NeuroCritic
         from cts.latent.faiss_context import LatentContextWindow
         from cts.mcts.cts_episode import cts_full_episode
         from cts.policy.meta_policy import MetaPolicy
-        bb = GemmaCTSBackbone(model, tok); bb.eval()
+        bb = _get_backbone(model_name, model, tok); bb.eval()
         H = bb.hidden_size; W = int(cfg.get("mcts_branching_W", 3))
         K = int(cfg.get("soft_thought_K", 64))
         meta_policy = MetaPolicy(text_dim=H, hidden=256, W=W).to(device)
@@ -1252,11 +1288,10 @@ def _run_cts_on_problems(
         # MCTS with PPO-trained policy/value but NO FAISS retrieval. We
         # route through cts_4nu WITHOUT the latent context window and with
         # a depth cap of 15 (paper's stated D <= 15 OOM-cap protocol).
-        from cts.backbone.gemma_adapter import GemmaCTSBackbone
         from cts.critic.neuro_critic import NeuroCritic
         from cts.mcts.cts_episode import cts_full_episode
         from cts.policy.meta_policy import MetaPolicy
-        bb = GemmaCTSBackbone(model, tok); bb.eval()
+        bb = _get_backbone(model_name, model, tok); bb.eval()
         H = bb.hidden_size; W = int(cfg.get("mcts_branching_W", 3))
         K = int(cfg.get("soft_thought_K", 64))
         meta_policy = MetaPolicy(text_dim=H, hidden=256, W=W).to(device)
@@ -1320,6 +1355,8 @@ def run_table2_reproduction(
     model_dir: Optional[str] = None,
     limit: Optional[int] = None,
     nu_trace_dir: Optional[Path] = None,
+    resume_partial: bool = False,
+    model_name: str = "gemma",
 ) -> Dict[str, Dict[str, StatisticalResult]]:
     """Reproduce Table 2 with full statistical protocol.
 
@@ -1338,6 +1375,28 @@ def run_table2_reproduction(
     # uses ``n_samples=len(scores)`` per cell so reviewers can tell which
     # cells are complete vs in-progress.
     partial_path = Path(output_dir) / "table2_results.partial.json"
+
+    def _load_partial() -> Dict[str, Dict[str, List[float]]]:
+        loaded: Dict[str, Dict[str, List[float]]] = {
+            m: {b: [] for b in benchmarks} for m in TABLE2_METHODS
+        }
+        if not resume_partial or not partial_path.is_file():
+            return loaded
+        try:
+            data = json.loads(partial_path.read_text(encoding="utf-8"))
+            raw = data.get("raw_scores") or {}
+            for m in TABLE2_METHODS:
+                for b in benchmarks:
+                    loaded[m][b] = list((raw.get(m) or {}).get(b) or [])
+            n_done = sum(len(loaded[m][b]) for m in TABLE2_METHODS for b in benchmarks)
+            print(f"  [resume-partial] loaded {n_done} completed (method,bench,seed) cells", flush=True)
+        except (json.JSONDecodeError, OSError, TypeError) as exc:
+            print(f"  [warn] resume-partial load failed: {exc}", flush=True)
+        return loaded
+
+    def _cell_done(results: Dict[str, Dict[str, List[float]]], method: str, bench: str, seed: int) -> bool:
+        seed_i = seeds.index(seed)
+        return len(results.get(method, {}).get(bench, [])) > seed_i
 
     def _flush_partial() -> None:
         try:
@@ -1374,11 +1433,16 @@ def run_table2_reproduction(
         except Exception as _exc:
             print(f"  [warn] partial-save failed: {_exc}", flush=True)
 
-    for method in TABLE2_METHODS:
-        all_results[method] = {b: [] for b in benchmarks}
+    all_results = _load_partial()
 
+    for method in TABLE2_METHODS:
+        if method not in all_results:
+            all_results[method] = {b: [] for b in benchmarks}
         for seed in seeds:
             for bench in benchmarks:
+                if _cell_done(all_results, method, bench, seed):
+                    print(f"  [skip partial] [{method}] {bench} seed={seed}", flush=True)
+                    continue
                 print(f"  [{method}] {bench} seed={seed}", flush=True)
                 result = run_single_evaluation(
                     method, bench, seed,
@@ -1387,6 +1451,7 @@ def run_table2_reproduction(
                     model_dir=model_dir,
                     limit=limit,
                     nu_trace_dir=nu_trace_dir,
+                    model_name=model_name,
                 )
                 acc = result.get("accuracy", 0.0)
                 all_results[method][bench].append(acc)
@@ -1612,6 +1677,7 @@ def main() -> None:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--output-dir", default="results/table2")
     parser.add_argument("--model-dir", default=None)
+    parser.add_argument("--model-name", default="gemma", choices=["gemma", "qwen2.5-7b"])
     parser.add_argument("--mode", default="4nu", choices=["4nu", "2nu_fast", "1nu"])
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of problems per benchmark (for fast testing)")
@@ -1622,6 +1688,12 @@ def main() -> None:
         help="If set, CTS dispatchers write per-problem ν JSONL traces here, "
              "consumed downstream by `scripts/aggregate_nu_table19.py` (paper "
              "Table 19). Honours the ``CTS_NU_TRACE_DIR`` env var as fallback.",
+    )
+    parser.add_argument(
+        "--resume-partial",
+        action="store_true",
+        help="Skip (method, bench, seed) cells already present in "
+             "table2_results.partial.json under output-dir.",
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -1664,6 +1736,8 @@ def main() -> None:
         model_dir=args.model_dir,
         limit=args.limit,
         nu_trace_dir=Path(args.nu_trace_dir) if args.nu_trace_dir else None,
+        resume_partial=args.resume_partial,
+        model_name=args.model_name,
     )
 
 

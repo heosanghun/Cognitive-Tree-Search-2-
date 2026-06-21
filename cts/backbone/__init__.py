@@ -19,11 +19,13 @@ from typing import Any
 from cts.backbone.protocol import BaseCTSBackbone
 from cts.backbone.mock_tiny import MockTinyBackbone
 
-__all__ = ["BaseCTSBackbone", "MockTinyBackbone", "GemmaCTSBackbone"]
+__all__ = ["BaseCTSBackbone", "MockTinyBackbone", "GemmaCTSBackbone", "QwenCTSBackbone"]
 
 _LAZY = {
     "GemmaCTSBackbone": ("cts.backbone.gemma_adapter", "GemmaCTSBackbone"),
+    "QwenCTSBackbone": ("cts.backbone.qwen_adapter", "QwenCTSBackbone"),
 }
+
 
 
 def __getattr__(name: str) -> Any:  # PEP 562

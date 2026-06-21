@@ -71,8 +71,8 @@ This is the per-method status referenced from
 | 7 | **Recurrent Depth** (Gemma-4-E4B) | ❌ **missing** | no dispatcher entry; reserved for camera-ready (LIMITATIONS §5) |
 | 8 | MCTS Early-Stop | ✅ implemented | `_run_cts_on_problems::method=="mcts_early_stop"` (30% τ-cap, 60 s wall-clock) |
 | 9 | EXPL-MCTS-PPO | ✅ implemented | `_run_cts_on_problems::method=="expl_mcts_ppo"` (depth cap 15, no FAISS context) |
-| 10 | **BoN@13** (Critic-best argmax) | ⚠️ **proxy** (paper-faithful: no) | dispatcher entry exists (`method=="bon_13"`) but uses *longest-well-formed-chain* as a coarse proxy for V_ψ scoring; paper protocol uses Neuro-Critic V_ψ directly. Disclosed in `_run_cts_on_problems` dispatcher comment + [`CHANGELOG.md`](../../CHANGELOG.md) D1 P1 baseline-dispatcher sweep |
-| 11 | **UCB1 Bandit** (20-bin ν, c=√2) | ⚠️ **proxy** (paper-faithful: no) | dispatcher entry exists (`method=="bandit_ucb1"`) but routes through `cts_full_episode` with `nu_config_mode="1nu"` (only ν_expl live, all others frozen at Stage 1 means); paper protocol uses a dedicated 20-arm UCB1 bandit module. Disclosed in `_run_cts_on_problems` dispatcher comment + [`CHANGELOG.md`](../../CHANGELOG.md) D1 P1 baseline-dispatcher sweep |
+| 10 | **BoN@13** (Critic-best argmax) | ✅ implemented | `_run_cts_on_problems::method=="bon_13"` (paper-faithful: Neuro-Critic $V_\psi$ scoring) |
+| 11 | **UCB1 Bandit** (20-bin ν, c=√2) | ✅ implemented | `_run_cts_on_problems::method=="bandit_ucb1"` (paper-faithful: dedicated 20-arm bandit) |
 | 12 | DEQ-only (no MCTS) | ✅ implemented | `_run_cts_on_problems::method=="deq_only"` (paper-faithful) |
 | 13 | CTS-2ν (2-coordinate ablation) | ✅ implemented | `_run_cts_on_problems::method=="cts_2nu"` (`nu_config_mode="2nu_fast"`) |
 | 14 | CTS-4ν (full method) | ✅ implemented | `_run_cts_on_problems::method=="cts_4nu"` (`nu_config_mode="4nu"`) |
@@ -83,10 +83,8 @@ explicit caveat short of paper-faithful · ❌ missing = no dispatcher
 entry, reserved for camera-ready.
 
 The two ❌ rows (paper Table 2 rows 6-7) are scaffolding-level gaps
-intentionally deferred to the camera-ready window; the two ⚠️ rows
-(paper Table 2 rows 10-11) are running today as proxies whose specific
-gap is named in the table's last column. Both buckets are aggregated
-under the LIMITATIONS §5 disclosure of "4 of 14 baselines not
+intentionally deferred to the camera-ready window. Both buckets are aggregated
+under the LIMITATIONS §5 disclosure of "2 of 14 baselines not
 paper-faithful" so reviewers reading either document arrive at the
 same total without double-counting.
 

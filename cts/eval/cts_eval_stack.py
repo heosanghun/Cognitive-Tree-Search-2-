@@ -27,16 +27,33 @@ def load_cts_backbone_with_stage1(
     *,
     cfg: Dict[str, Any],
     stage1_ckpt: Path | str = Path("artifacts/stage1_last.pt"),
-) -> GemmaCTSBackbone:
-    """Wrap HF Gemma, apply LoRA shell, load Stage-1 ``backbone_state_dict``."""
-    bb = GemmaCTSBackbone(model, tok)
+) -> Any:
+    """Wrap model (Gemma/Qwen), apply LoRA shell, load Stage-1 ``backbone_state_dict``."""
+    model_name = type(model).__name__.lower()
+    config_name = type(model.config).__name__.lower()
+    is_qwen = "qwen" in model_name or "qwen" in config_name
+
+    if is_qwen:
+        from cts.backbone.qwen_adapter import QwenCTSBackbone
+        bb = QwenCTSBackbone(model, tok)
+    else:
+        bb = GemmaCTSBackbone(model, tok)
+
     s1 = Path(stage1_ckpt)
     if not s1.is_file():
-        print(f"  [WARN] stage1 ckpt missing at {s1}; using base Gemma backbone.", flush=True)
+        print(f"  [WARN] stage1 ckpt missing at {s1}; using base backbone.", flush=True)
         bb.eval()
         return bb
     ck = _load_torch(s1)
     sd = ck.get("backbone_state_dict", ck)
+
+    # Skip Gemma-specific checkpoint if evaluating Qwen
+    is_gemma_ckpt = any("language_model" in k for k in sd)
+    if is_qwen and is_gemma_ckpt:
+        print(f"  [INFO] Skipping Gemma stage1 checkpoint {s1} for Qwen backbone.", flush=True)
+        bb.eval()
+        return bb
+
     if any(k.endswith("lora_A.weight") or k.endswith("lora_B.weight") for k in sd):
         apply_paper_lora(
             bb,
@@ -73,9 +90,17 @@ def load_stage2_heads(
     loaded_mp = meta_state is not None
     loaded_cr = critic_state is not None
     if loaded_mp:
-        meta_policy.load_state_dict(meta_state, strict=False)
+        try:
+            meta_policy.load_state_dict(meta_state, strict=False)
+        except RuntimeError as e:
+            print(f"  [WARN] Skipping MetaPolicy checkpoint loading due to size mismatch: {e}", flush=True)
+            loaded_mp = False
     if loaded_cr:
-        critic.load_state_dict(critic_state, strict=False)
+        try:
+            critic.load_state_dict(critic_state, strict=False)
+        except RuntimeError as e:
+            print(f"  [WARN] Skipping Critic checkpoint loading due to size mismatch: {e}", flush=True)
+            loaded_cr = False
     meta_policy.to(map_dev).eval()
     critic.to(map_dev).eval()
     print(
