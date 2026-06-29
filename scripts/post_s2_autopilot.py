@@ -791,6 +791,7 @@ def run_autopilot(args: argparse.Namespace) -> int:
             )
             res = {"stage1": s1, "stage2": s2}
             if s2.get("status") == "PASS":
+                retry_out = WAVE2_OUT.parent / "headline_w2_after_phase4"
                 w2b = _run(
                     [
                         sys.executable, "scripts/run_cts_eval_full.py",
@@ -799,7 +800,12 @@ def run_autopilot(args: argparse.Namespace) -> int:
                         "--methods", "cts_4nu", "greedy", "native_think", "sc_14", "mcts_early_stop",
                         "--seeds", str(args.seeds),
                         "--device", args.device,
-                        "--output-dir", str(WAVE2_OUT.parent / "headline_w2_after_phase4"),
+                        "--output-dir", str(retry_out),
+                        *(
+                            ["--resume-partial"]
+                            if (retry_out / "table2_results.partial.json").is_file()
+                            else []
+                        ),
                     ],
                     log_name="wave2_after_phase4.log",
                     env=_headline_env(),
