@@ -1,6 +1,8 @@
-# Cognitive Tree Search (CTS) Project Agent Rules
+# Agent Instructions
 
-## GPU Resource Allocation Constraints
-- **CRITICAL**: SSH 원격 서버 접속 및 연산 수행 시, 사용할 GPU 장치는 반드시 **0번 ~ 3번 (GPU 0 ~ GPU 3, cuda:0 ~ cuda:3)** 범위 내에서만 할당해야 합니다.
-- **GPU 4번 이상 (cuda:4 등)의 장치는 연구실의 허가를 받지 않은 장치이며 규정 위반이 되므로 절대 지정하거나 사용해서는 안 됩니다.**
-- 스크립트 실행 파라미터(예: `--device cuda:X`) 지정 시 반드시 `cuda:0`, `cuda:1`, `cuda:2`, `cuda:3` 중 하나를 할당하도록 장치 코드를 명시적으로 설정하십시오.
+## GPU Usage Constraints
+- **GPU 사용 지침 (GPU Usage Constraint)**:
+  - SSH 서버에 접속하여 연산 및 학습을 수행할 때는 **GPU 0번, 1번, 2번, 3번까지만** 사용해야 합니다.
+  - 배포 스크립트 또는 훈련 스크립트(예: docker run, CUDA_VISIBLE_DEVICES, device 지정 등) 작성 및 수정 시, **GPU 4번, 5번, 6번, 7번(또는 그 이상)은 절대 할당하거나 침범하지 않도록** 설정을 설계하고 즉시 수정하십시오.
+  - When accessing the SSH server, agents must restrict VRAM and process allocation to **GPUs 0, 1, 2, and 3 only**.
+  - All deployment and run scripts (e.g., `docker run --gpus`, `CUDA_VISIBLE_DEVICES`, `--device`) must be immediately updated to use only GPUs 0-3. Never configure or intrude on GPUs 4-7.
