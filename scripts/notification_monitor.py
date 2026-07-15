@@ -27,9 +27,9 @@ def load_config():
         except json.JSONDecodeError as e:
             log_local(f"Error parsing config file: {e}")
     return {
-        "discord": {"enabled": false, "webhook_url": ""},
-        "slack": {"enabled": false, "webhook_url": ""},
-        "telegram": {"enabled": false, "bot_token": "", "chat_id": ""},
+        "discord": {"enabled": False, "webhook_url": ""},
+        "slack": {"enabled": False, "webhook_url": ""},
+        "telegram": {"enabled": False, "bot_token": "", "chat_id": ""},
         "local_log": {"enabled": True, "log_path": "results/post_s2_autopilot/logs/notifications.log"}
     }
 

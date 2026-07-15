@@ -1,7 +1,8 @@
 """Value head on z* — Neuro-Critic νval (paper §5.3).
 
-Implemented as a separate linear head atop the shared Meta-Policy backbone.
-V(z*) is computed directly from the latent space.
+Implemented as a standalone 2-layer MLP (Linear-Tanh-Linear) that maps the
+mean-pooled latent z* directly to a scalar V(z*); it does NOT share weights
+with the Meta-Policy. V(z*) is computed directly from the latent space.
 """
 
 from __future__ import annotations
