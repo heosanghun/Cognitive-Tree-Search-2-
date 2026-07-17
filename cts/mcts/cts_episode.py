@@ -343,6 +343,16 @@ def cts_full_episode(
             if hybrid_kv_manager is not None
             else (False, None)
         )
+        # All W sibling transitions share leaf.text_state: encode the parent
+        # context once per expansion instead of once per branch. On the real
+        # Gemma backbone encode_context is a full-model forward pass, so this
+        # removes (W-1)/W of the episode's context-encoding cost. The root's
+        # first expansion reuses the encoding already computed on line 1.
+        if leaf_id == 0 and leaf.text_state == prompt:
+            leaf_context = context_0
+        else:
+            with torch.no_grad():
+                leaf_context = backbone.encode_context(leaf.text_state)
         for w in range(W_eff):
             if _deadline is not None and _time.time() > _deadline:
                 break
@@ -366,6 +376,7 @@ def cts_full_episode(
                 parent_z_star=z_star_s,
                 noise_sigma=noise_sigma,
                 parent_inv_jacobian=leaf_inv_jac,
+                context=leaf_context,
             )
 
             iters = r.solver_stats.get("iterations", 0)
@@ -380,10 +391,9 @@ def cts_full_episode(
                 z_child_pooled = torch.zeros(d, device=device)
 
             with torch.no_grad():
-                q_w = float(critic(z_child_pooled.unsqueeze(0).to(device)).item())
+                critic_q = float(critic(z_child_pooled.unsqueeze(0).to(device)).item())
 
-            if r.prune:
-                q_w = 0.0
+            q_w = 0.0 if r.prune else critic_q
 
             child_q_values.append(q_w)
 
@@ -391,6 +401,11 @@ def cts_full_episode(
             child_id = tree.new_node(
                 child_text, z_child, depth=t + 1, parent_id=leaf_id, W=W_eff,
             )
+            # Cache V_psi(z*_w) (the raw pre-prune critic value) for the
+            # terminal best-node selection; the critic is deterministic on
+            # identical input, so reusing it only removes the duplicate
+            # forward pass over every tree node at episode end.
+            tree.nodes[child_id].critic_value = critic_q
             # Paper Remark 2: store the converged inverse Jacobian on the child
             # so this child's own children can warm-start from it. Only the dense
             # Broyden path populates this; on the Anderson path it stays None.
@@ -414,13 +429,16 @@ def cts_full_episode(
     best_q = float("-inf")
     for node in tree.nodes:
         if node.z_star is not None and node.depth > 0:
-            z_p = _pool_z_star(node.z_star)
-            if z_p is not None:
+            v = node.critic_value
+            if v is None:
+                z_p = _pool_z_star(node.z_star)
+                if z_p is None:
+                    continue
                 with torch.no_grad():
                     v = float(critic(z_p.unsqueeze(0).to(device)).item())
-                if v > best_q:
-                    best_q = v
-                    best_id = node.node_id
+            if v > best_q:
+                best_q = v
+                best_id = node.node_id
 
     best_z = tree.nodes[best_id].z_star
 
