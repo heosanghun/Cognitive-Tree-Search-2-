@@ -7,6 +7,50 @@ batch of commits), and the first numbered release will be cut on camera-ready.
 
 ---
 
+## [unreleased] — Jul 17: Episode hot-path optimization (behaviour-equivalent, 26.7x)
+
+Full experiment write-up with raw per-episode JSON:
+`results/perf_opt/BENCHMARK.md`. Verified behaviour-equivalent against a
+pinned pre-optimization worktree (identical answers, tree sizes, sim
+counts, and DEQ iteration counts across the equivalence matrix).
+
+### Changed
+
+- `cts/deq/broyden_forward.py` — dense L-Broyden now maintains the
+  **inverse** Jacobian `H = B^-1` via Sherman-Morrison (O(n^2)/iteration,
+  in-place `addr_` rank-1 update) instead of storing `B` and calling
+  `torch.linalg.solve` (O(n^3)) every iteration; `jacobian_state` now
+  genuinely stores the inverse Jacobian that Remark 2 and the
+  `inv_jacobian` field names always described. Anderson path builds its
+  difference history incrementally. `broyden_fixed_point` runs under
+  `torch.no_grad()` — no code path differentiates through the solver, and
+  the retained autograd graph (~67 MB per dense iteration) previously
+  OOM-killed tau-driven episodes on a 16 GB host.
+- `cts/mcts/cts_episode.py` — parent context encoded **once per leaf
+  expansion** and shared across all W sibling `transition()` calls (new
+  optional `context=` parameter, back-compatible); terminal best-node
+  selection reuses expansion-time critic values.
+- `cts/deq/transition.py` — MAC LUT cached at module level; single-sync
+  flops reduction (bit-identical accumulation).
+- `REVIEWER_FAQ.md` — cite `LIMITATIONS.md` "section 15" instead of
+  "§15" so `test_paper_section_alignment` no longer reads it as a paper
+  section family.
+
+### Added
+
+- `cts/types.py::TreeNode.critic_value` — expansion-time V_psi cache.
+- `scripts/bench_episode_perf.py` — CPU episode benchmark harness.
+- `results/perf_opt/` — BENCHMARK.md + 11 raw measurement JSONs
+  (controlled workload 20.63 s -> 0.77 s, 3 interleaved rounds; full
+  eval-protocol episode host-OOM -> 9.11 s).
+- `tests/test_broyden_sherman_morrison.py` — regression pin: the
+  Sherman-Morrison path is iterate-equivalent to the classic
+  solve-against-B formulation (root parity exact; inherited solves within
+  one iteration), plus an honest scope note on warm-start behaviour for
+  tiny synthetic contractions.
+
+---
+
 ## [unreleased] — May 19: CPU-safe baseline wiring (background Stage 2 unaffected)
 
 While the 10k-step Stage 2 PPO retrain runs in the background, the
