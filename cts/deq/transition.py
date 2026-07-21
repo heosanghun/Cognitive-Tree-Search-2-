@@ -100,6 +100,7 @@ def transition(
     parent_z_star: Optional[torch.Tensor] = None,
     noise_sigma: float = 0.02,
     context: Optional[torch.Tensor] = None,
+    faiss_add: bool = True,
 ) -> TransitionResult:
     """One KV-cache-free transition using DEQ (paper §4.2).
 
@@ -113,6 +114,13 @@ def transition(
     episode loop encodes once per leaf expansion and passes it here instead
     of re-running the (full-model) context encoder per branch. ``None``
     preserves the historical behaviour of encoding internally.
+
+    ``faiss_add``: when False, the converged z* is NOT registered into
+    ``faiss_context`` by this call; the caller performs the adds itself.
+    Paper Algorithm 1 separates the W parallel solves (lines 7-15) from the
+    sequential ``F.add(z*_w)`` loop (lines 16-18), so sibling branches within
+    one expansion must not retrieve each other's freshly added latents —
+    ``cts_full_episode`` passes False and adds after the branch loop.
     """
     if isinstance(backbone, nn.Module):
         device = next(backbone.parameters()).device
@@ -219,7 +227,7 @@ def transition(
     if budget.mac_accumulated > tau_flops_budget * nu.nu_act:
         solver_stats["act_halt"] = True
 
-    if faiss_context is not None:
+    if faiss_context is not None and faiss_add:
         faiss_context.add(z_star)
 
     if hasattr(backbone, "decode_from_z_star"):

@@ -16,6 +16,21 @@ import torch
 
 MAX_DENSE_N = 8192
 
+# Root Broyden Jacobian estimate B_0 = ROOT_B0_SCALE * I (the dense solver
+# maintains H = B^{-1}, so H_0 = (1/ROOT_B0_SCALE) * I).
+#
+# Paper Algorithm 1 line 1 specifies "B_0 <- 0.1*I", which is near-exact for
+# the paper's operating regime (spectral radius gamma ~ 0.92, Table 7, where
+# the Jacobian of F(z) = z - phi(z) is ~ 0.08*I). For fast contractions
+# (gamma ~ 0.5, e.g. the CPU mock backbone used in CI) H_0 = 10*I overshoots
+# and the solver fails to converge, contradicting the paper's own 97.3%
+# convergence claim (Table 12). The default therefore stays at the robust
+# identity estimate; pass ``root_b0_scale=0.1`` to ``broyden_fixed_point``
+# to reproduce the paper's Algorithm-1 initialisation in its slow-contraction
+# regime. (At Gemma scale, n > MAX_DENSE_N routes to Anderson acceleration,
+# which maintains no B at all — a documented implementation divergence.)
+ROOT_B0_SCALE = 1.0
+
 
 @dataclass
 class BroydenInfo:
@@ -112,6 +127,7 @@ def _dense_broyden(
     fp32_buffer: bool,
     memory_limit: int,
     is_root: bool,
+    root_b0_scale: float = ROOT_B0_SCALE,
 ) -> Tuple[torch.Tensor, BroydenInfo]:
     """Dense Broyden for small n. Proven stable.
 
@@ -146,7 +162,9 @@ def _dense_broyden(
     if parent_inv_jacobian is not None and parent_inv_jacobian.shape == (n, n):
         H = parent_inv_jacobian.to(device=device, dtype=compute_dtype).clone()
     else:
-        H = torch.eye(n, device=device, dtype=compute_dtype)
+        # Root init H_0 = B_0^{-1} = (1/root_b0_scale)*I; see the
+        # ROOT_B0_SCALE module comment for the paper Algorithm-1 relation.
+        H = torch.eye(n, device=device, dtype=compute_dtype) * (1.0 / root_b0_scale)
 
     for it in range(max_iter):
         res = float(Fv.norm().item())
@@ -280,6 +298,7 @@ def broyden_fixed_point(
     parent_inv_jacobian: Optional[torch.Tensor] = None,
     fp32_buffer: bool = True,
     memory_limit: int = 16,
+    root_b0_scale: float = ROOT_B0_SCALE,
 ) -> Tuple[torch.Tensor, BroydenInfo]:
     """L-Broyden fixed-point solver (paper §5.2).
 
@@ -306,6 +325,7 @@ def broyden_fixed_point(
             return _dense_broyden(
                 phi, z0, tol, max_iter, parent_inv_jacobian,
                 fp32_buffer, memory_limit, is_root,
+                root_b0_scale=root_b0_scale,
             )
         else:
             return _anderson_broyden(

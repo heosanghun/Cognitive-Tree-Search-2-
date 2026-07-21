@@ -22,7 +22,14 @@ from cts.deq.broyden_forward import broyden_fixed_point
 
 
 def _classic_dense_broyden(phi, z0, tol, max_iter, parent_B=None):
-    """The pre-2026-07 formulation: store B, linalg.solve each iteration."""
+    """The pre-2026-07 formulation: store B, linalg.solve each iteration.
+
+    Root init B_0 = ROOT_B0_SCALE * I mirrors the production solver's
+    H_0 = (1/ROOT_B0_SCALE) * I so the equivalence comparison stays
+    apples-to-apples whatever the configured scale.
+    """
+    from cts.deq.broyden_forward import ROOT_B0_SCALE
+
     orig_shape = z0.shape
     z = z0.detach().reshape(-1).float().clone()
     n = z.numel()
@@ -31,7 +38,7 @@ def _classic_dense_broyden(phi, z0, tol, max_iter, parent_B=None):
         return v - phi(v.view(orig_shape)).reshape(-1).float()
 
     Fv = F(z)
-    B = parent_B.clone() if parent_B is not None else torch.eye(n)
+    B = parent_B.clone() if parent_B is not None else torch.eye(n) * ROOT_B0_SCALE
     for it in range(max_iter):
         res = float(Fv.norm())
         if res < tol:

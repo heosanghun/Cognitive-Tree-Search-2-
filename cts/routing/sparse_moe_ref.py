@@ -29,8 +29,21 @@ def top_k_mask(alpha: torch.Tensor, k: int) -> torch.Tensor:
     return m
 
 
-def sparse_module_weights(alpha: torch.Tensor, k: int) -> torch.Tensor:
-    """Renormalize over top-k for weighted sum (reference path)."""
+def sparse_module_weights(
+    alpha: torch.Tensor, k: int, renormalize: bool = False
+) -> torch.Tensor:
+    """Sparse top-k module weights (paper Eq. 3).
+
+    Paper Eq. 3 sums the *raw* softmax weights over the Top-k modules:
+    ``z* = sum_{i in Top-k} Softmax(W_g z*/nu_temp)_i · m_i(...)`` — no
+    renormalization. The resulting weights sum to < 1, which also serves
+    Proposition 1's contraction condition ``sum_i g_i L_i < 1``.
+
+    ``renormalize=True`` restores the pre-alignment behaviour (weights
+    rescaled to sum to 1) for backward comparison.
+    """
     m = top_k_mask(alpha, k)
     w = alpha * m
-    return w / (w.sum().clamp_min(1e-8))
+    if renormalize:
+        return w / (w.sum().clamp_min(1e-8))
+    return w

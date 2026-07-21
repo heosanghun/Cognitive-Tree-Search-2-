@@ -7,6 +7,49 @@ batch of commits), and the first numbered release will be cut on camera-ready.
 
 ---
 
+## [unreleased] — Jul 21: Manuscript alignment audit (7 fixes vs submitted CTS.pdf)
+
+Full audit write-up: `results/paper_alignment/ALIGNMENT.md`. The submitted
+manuscript was read end-to-end and diffed against code behaviour; seven
+concrete mismatches were fixed, one paper constant was exposed as a
+parameter with measured rationale, and four ambiguous items were documented
+as deviations rather than changed.
+
+### Fixed (paper parity)
+
+- **Eq. 2 uniform PUCT prior**: `cts_full_episode` no longer overwrites
+  `mcts_prior` with the meta-policy's learned priors (P(s,a)=1/W per the
+  paper; the prior head remains the Stage-2 PPO actor).
+- **Eq. 3 raw Top-k softmax weights**: `sparse_module_weights` (and the
+  Triton kernel) no longer renormalise over the Top-k
+  (`renormalize=True` restores the old behaviour for comparison).
+- **FAISS onset `t > 10`** (was `t >= 10`) and **AncestorStack fallback**
+  for shallow nodes (Algorithm 1 lines 8–11): up to 3 nearest-ancestor z*
+  now prepend to the leaf context below the FAISS onset depth.
+- **FAISS adds deferred until after the W solves** (Algorithm 1 lines
+  13–17): sibling branches can no longer retrieve each other's freshly
+  added latents within one expansion; fallback nodes stay excluded
+  (Appendix K). New `transition(faiss_add=…)`;
+  `cts_full_episode(parallel_expansion=…)` optionally runs the W solves as
+  the paper's parallel batch (line 7).
+- **Appendix-H meta-MAC accounting**: the flat 0.002e14-per-simulation
+  controller charge (Appendix H's per-EPISODE figure, over-counted ~100x)
+  is replaced by the actual forward MACs of the two MLPs; tau-driven
+  episodes now reach the paper's D≈100-scale simulation counts.
+- Stale draft "§5.3" quote removed from `sparse_moe_triton.py`.
+
+### Changed
+
+- `broyden_fixed_point(root_b0_scale=…)`: paper Algorithm-1's B0=0.1*I is
+  selectable; default stays 1.0*I with a measured justification (0.1*I
+  diverges on fast contractions, contradicting the paper's own 97.3%
+  convergence claim; Gemma-scale routes to Anderson regardless).
+- `tests/test_cts_full_episode.py`: wall-clock budget assert allows the
+  documented soft-cap overshoot now that tau no longer halts the test
+  configuration early.
+
+---
+
 ## [unreleased] — Jul 17: Episode hot-path optimization (behaviour-equivalent, 26.7x)
 
 Full experiment write-up with raw per-episode JSON:
