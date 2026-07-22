@@ -22,7 +22,7 @@ from cts.backbone.protocol import BaseCTSBackbone
 from cts.critic.neuro_critic import NeuroCritic
 from cts.deq.transition import transition
 from cts.latent.bottleneck import init_z0
-from cts.latent.faiss_context import LatentContextWindow
+from cts.latent.faiss_context import LatentContextWindow, prepend_soft_prefix
 from cts.mcts.hybrid_kv import HybridKVManager, hybrid_transition_decision
 from cts.mcts.puct import PUCTVariant, select_action
 from cts.mcts.tree import SearchTree
@@ -169,6 +169,7 @@ def cts_full_episode(
     nu_expl_override: Optional[float] = None,
     k_override: Optional[int] = None,
     w_override: Optional[int] = None,
+    parallel_expansion: bool = False,
 ) -> CtsEpisodeResult:
     """Algorithm 1: Cognitive Tree Search — Single Episode.
 
@@ -211,6 +212,14 @@ def cts_full_episode(
         ``W`` (paper §4.1, README "Configuration" W=3); the latter is the
         children-per-leaf parallelism and is unaffected unless
         ``k_override`` is set.
+
+    ``parallel_expansion``: paper Algorithm 1 line 7 ("for w = 1,...,W in
+        parallel"). When True the W independent DEQ solves of one expansion
+        run as a thread-parallel batch; FAISS adds and critic evaluations
+        stay sequential in branch order (lines 16-18). The branches carry no
+        cross-dependency either way, so ``False`` (default) executes the same
+        batch sequentially — bit-reproducible on CPU, where concurrent
+        intra-op threading can perturb reduction order at the last ulp.
     """
     if device is None:
         if hasattr(backbone, "parameters"):
@@ -260,6 +269,16 @@ def cts_full_episode(
     if faiss_context is not None:
         faiss_context.reset()
 
+    # Paper Appendix H / Algorithm 1 line 5: LUT[pi_phi] + LUT[V_psi] = the
+    # actual forward MACs of the two 2-layer MLPs (≈ their parameter counts).
+    def _param_macs(m: Any) -> float:
+        try:
+            return float(sum(p.numel() for p in m.parameters()))
+        except Exception:
+            return 0.0
+
+    _meta_lut_mac = _param_macs(meta_policy) + _param_macs(critic)
+
     import time as _time
     _start_t = _time.time()
     _deadline = (_start_t + wall_clock_budget_s) if wall_clock_budget_s and wall_clock_budget_s > 0 else None
@@ -296,9 +315,14 @@ def cts_full_episode(
         if nu_trace is not None:
             nu_trace.append(nu)
 
-        # Line 5: MAC += LUT[pi_phi] + LUT[V_psi]
-        meta_mac = 0.002e14
-        mac_accumulated += meta_mac
+        # Line 5: MAC += LUT[pi_phi] + LUT[V_psi]. Per paper Appendix H the
+        # meta-policy + Critic LUT entries are their actual forward-pass MACs
+        # (~1 MAC per parameter for the 2-layer MLPs), keeping the per-episode
+        # controller overhead at the documented <0.8% of the tau budget. The
+        # historical flat 0.002e14-per-iteration charge over-counted this by
+        # several orders of magnitude (0.002e14 is Appendix H's per-EPISODE
+        # figure).
+        mac_accumulated += _meta_lut_mac
 
         # Line 3 (refined): use nu_expl from policy for PUCT in subsequent iterations.
         # nu_temp now wires the meta-policy temperature into PUCT selection
@@ -343,11 +367,40 @@ def cts_full_episode(
             if hybrid_kv_manager is not None
             else (False, None)
         )
-        for w in range(W_eff):
-            if _deadline is not None and _time.time() > _deadline:
-                break
+        # All W sibling transitions share leaf.text_state: encode the parent
+        # context once per expansion instead of once per branch. On the real
+        # Gemma backbone encode_context is a full-model forward pass, so this
+        # removes (W-1)/W of the episode's context-encoding cost. The root's
+        # first expansion reuses the encoding already computed on line 1.
+        if leaf_id == 0 and leaf.text_state == prompt:
+            leaf_context = context_0
+        else:
+            with torch.no_grad():
+                leaf_context = backbone.encode_context(leaf.text_state)
+
+        # Algorithm 1 lines 8-12: for t > 10 each branch queries FAISS for
+        # H_t; for shallow nodes (t <= 10) H_t <- AncestorStack(s): the up-to-3
+        # nearest ancestors' z*, prepended to the leaf context as the same
+        # soft-prefix pathway FAISS retrieval uses.
+        use_faiss = faiss_context is not None and t > 10
+        if not use_faiss and t > 0:
+            ancestor_z: List[torch.Tensor] = []
+            cur_anc = leaf.parent_id
+            while cur_anc is not None and len(ancestor_z) < 3:
+                anc = tree.nodes[cur_anc]
+                if anc.z_star is not None:
+                    ancestor_z.append(anc.z_star.detach().float())
+                cur_anc = anc.parent_id
+            if ancestor_z:
+                if leaf_context.dim() == 1:
+                    leaf_context = leaf_context.unsqueeze(0)
+                leaf_context = prepend_soft_prefix(
+                    leaf_context.float(), torch.stack(ancestor_z)
+                )
+
+        def _solve_branch(w: int) -> TransitionResult:
             budget_w = RuntimeBudgetState(mac_accumulated=mac_accumulated)
-            r = transition(
+            return transition(
                 leaf.text_state,
                 w,
                 nu,
@@ -362,35 +415,68 @@ def cts_full_episode(
                 tau_flops_budget=tau_budget,
                 routing_mode=routing_mode,
                 max_decode_tokens=1,
-                faiss_context=faiss_context if t >= 10 else None,
+                faiss_context=faiss_context if use_faiss else None,
                 parent_z_star=z_star_s,
                 noise_sigma=noise_sigma,
                 parent_inv_jacobian=leaf_inv_jac,
+                context=leaf_context,
+                # Line 17 performs F.add sequentially AFTER all W solves;
+                # deferring the add here keeps sibling branches from
+                # retrieving each other's freshly added latents.
+                faiss_add=False,
             )
 
+        # Lines 7-15: "for w = 1,...,W in parallel do" — the W solves are
+        # independent (per-branch RNG, read-only FAISS, shared read-only
+        # inverse Jacobian), so they run as a parallel batch. Results are
+        # consumed in branch order, so the tree is identical to a sequential
+        # expansion.
+        branch_results: List[TransitionResult] = []
+        if _deadline is None or _time.time() <= _deadline:
+            if parallel_expansion and W_eff > 1:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=W_eff) as _pool:
+                    branch_results = list(_pool.map(_solve_branch, range(W_eff)))
+            else:
+                for w in range(W_eff):
+                    if _deadline is not None and _time.time() > _deadline:
+                        break
+                    branch_results.append(_solve_branch(w))
+
+        # Lines 16-18 (sequential): Q_w <- V_psi(z*_w); F.add(z*_w);
+        # AddChild(T, z*_w, B_w)
+        for w, r in enumerate(branch_results):
             iters = r.solver_stats.get("iterations", 0)
             total_iterations += iters
             step_mac = r.solver_stats.get("flops_broyden_estimate", r.solver_stats.get("flops_used", 0.0))
             mac_accumulated += step_mac
 
-            # Line 12: Q_w <- V_psi(z*_w); F.add(z*_w); AddChild(T, z*_w, B_w)
             z_child = r.z_star_child
             z_child_pooled = _pool_z_star(z_child)
             if z_child_pooled is None:
                 z_child_pooled = torch.zeros(d, device=device)
 
             with torch.no_grad():
-                q_w = float(critic(z_child_pooled.unsqueeze(0).to(device)).item())
+                critic_q = float(critic(z_child_pooled.unsqueeze(0).to(device)).item())
 
-            if r.prune:
-                q_w = 0.0
+            q_w = 0.0 if r.prune else critic_q
 
             child_q_values.append(q_w)
+
+            # Appendix K: fallback (non-converged) nodes are excluded from
+            # FAISS registration.
+            if faiss_context is not None and not r.prune and z_child is not None:
+                faiss_context.add(z_child)
 
             child_text = r.child_text or f"<d={t+1} w={w}>"
             child_id = tree.new_node(
                 child_text, z_child, depth=t + 1, parent_id=leaf_id, W=W_eff,
             )
+            # Cache V_psi(z*_w) (the raw pre-prune critic value) for the
+            # terminal best-node selection; the critic is deterministic on
+            # identical input, so reusing it only removes the duplicate
+            # forward pass over every tree node at episode end.
+            tree.nodes[child_id].critic_value = critic_q
             # Paper Remark 2: store the converged inverse Jacobian on the child
             # so this child's own children can warm-start from it. Only the dense
             # Broyden path populates this; on the Anderson path it stays None.
@@ -398,8 +484,10 @@ def cts_full_episode(
             if inv_jac_child is not None:
                 tree.nodes[child_id].inv_jacobian_state = inv_jac_child.detach()
 
-        # Update priors on the expanded node (W_eff honours k_override)
-        tree.nodes[leaf_id].mcts_prior = list(priors) if len(priors) == W_eff else [1.0 / W_eff] * W_eff
+        # Paper Eq. 2: P(s,a) = 1/W (uniform prior); the meta-policy emits
+        # only the 4-D nu vector, not branch priors (its prior head serves the
+        # Stage 2 PPO actor). TreeNode initialises mcts_prior uniformly, so
+        # the learned-prior overwrite is removed for paper parity.
         tree.nodes[leaf_id].mcts_Q = child_q_values[:W_eff]
 
         # Line 14: BackProp(T, {Q_w})
@@ -414,13 +502,16 @@ def cts_full_episode(
     best_q = float("-inf")
     for node in tree.nodes:
         if node.z_star is not None and node.depth > 0:
-            z_p = _pool_z_star(node.z_star)
-            if z_p is not None:
+            v = node.critic_value
+            if v is None:
+                z_p = _pool_z_star(node.z_star)
+                if z_p is None:
+                    continue
                 with torch.no_grad():
                     v = float(critic(z_p.unsqueeze(0).to(device)).item())
-                if v > best_q:
-                    best_q = v
-                    best_id = node.node_id
+            if v > best_q:
+                best_q = v
+                best_id = node.node_id
 
     best_z = tree.nodes[best_id].z_star
 

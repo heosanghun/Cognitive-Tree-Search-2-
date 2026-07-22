@@ -1,10 +1,10 @@
-"""Triton fused sparse routing kernel (paper §5.3, Appendix A.2).
+"""Triton fused sparse routing kernel (paper §4.1 / Eq. 3).
 
-Paper §5.3: "Our released Triton kernel fuses the softmax + top-k + scatter-gather
-into a single kernel, achieving ~25 ms per transition batch (W=3) on a single
-A100. Without the fused kernel, PyTorch reference achieves ~38 ms."
+Paper §4.1: "W branches expand as a single parallel batch; Triton kernels
+achieve 25±2 ms at W=3 (median over 50 invocations after 10 warmup calls)."
 
-Workflow: softmax(W_g @ pool(z) / nu_temp) -> top-k mask -> renormalize
+Workflow: softmax(W_g @ pool(z) / nu_temp) -> top-k mask (paper Eq. 3: raw
+softmax weights over Top-k, no renormalization).
 All fused into one kernel launch to minimize global memory round-trips.
 """
 
@@ -30,9 +30,11 @@ if _TRITON_AVAILABLE:
         logits_ptr, output_ptr,
         n_modules: tl.constexpr, top_k: tl.constexpr,
     ):
-        """Fused softmax + top-k + renorm for sparse MoE routing.
+        """Fused softmax + top-k for sparse MoE routing (paper Eq. 3).
 
-        Single threadblock processes all n_modules logits.
+        Single threadblock processes all n_modules logits. The selected
+        Top-k softmax weights are emitted as-is (no renormalization),
+        matching Eq. 3 and the PyTorch reference.
         Paper: n_modules=19 (Gemma 4 E4B functional modules).
         """
         pid = tl.program_id(0)
@@ -60,11 +62,7 @@ if _TRITON_AVAILABLE:
             selected = tl.where(is_first_max, softmax_out, selected)
             remaining = tl.where(is_first_max, tl.zeros_like(remaining), remaining)
 
-        sum_selected = tl.sum(selected, axis=0)
-        sum_selected = tl.where(sum_selected > 1e-8, sum_selected, tl.full([1], 1e-8, dtype=tl.float32))
-        normalized = selected / sum_selected
-
-        tl.store(output_ptr + offset, normalized, mask=mask)
+        tl.store(output_ptr + offset, selected, mask=mask)
 
 
 def routing_weights_triton(

@@ -966,7 +966,7 @@ land in `results/post_stage2_May2026/` via
 **Short answer**: **Not for the in-flight May 2026 10k-step run.**
 That run used a DEQ **convergence proxy** because the on-disk Stage-2
 JSONL pool historically lacked gold `solution` fields. This is disclosed
-in [`LIMITATIONS.md`](LIMITATIONS.md) §15 and is **not** a silent bug:
+in [`LIMITATIONS.md`](LIMITATIONS.md) section 15 and is **not** a silent bug:
 reward mode is explicit in config and code.
 
 | Mode | When used | Reward signal |

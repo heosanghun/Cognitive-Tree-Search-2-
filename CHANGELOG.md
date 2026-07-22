@@ -7,6 +7,93 @@ batch of commits), and the first numbered release will be cut on camera-ready.
 
 ---
 
+## [unreleased] — Jul 21: Manuscript alignment audit (7 fixes vs submitted CTS.pdf)
+
+Full audit write-up: `results/paper_alignment/ALIGNMENT.md`. The submitted
+manuscript was read end-to-end and diffed against code behaviour; seven
+concrete mismatches were fixed, one paper constant was exposed as a
+parameter with measured rationale, and four ambiguous items were documented
+as deviations rather than changed.
+
+### Fixed (paper parity)
+
+- **Eq. 2 uniform PUCT prior**: `cts_full_episode` no longer overwrites
+  `mcts_prior` with the meta-policy's learned priors (P(s,a)=1/W per the
+  paper; the prior head remains the Stage-2 PPO actor).
+- **Eq. 3 raw Top-k softmax weights**: `sparse_module_weights` (and the
+  Triton kernel) no longer renormalise over the Top-k
+  (`renormalize=True` restores the old behaviour for comparison).
+- **FAISS onset `t > 10`** (was `t >= 10`) and **AncestorStack fallback**
+  for shallow nodes (Algorithm 1 lines 8–11): up to 3 nearest-ancestor z*
+  now prepend to the leaf context below the FAISS onset depth.
+- **FAISS adds deferred until after the W solves** (Algorithm 1 lines
+  13–17): sibling branches can no longer retrieve each other's freshly
+  added latents within one expansion; fallback nodes stay excluded
+  (Appendix K). New `transition(faiss_add=…)`;
+  `cts_full_episode(parallel_expansion=…)` optionally runs the W solves as
+  the paper's parallel batch (line 7).
+- **Appendix-H meta-MAC accounting**: the flat 0.002e14-per-simulation
+  controller charge (Appendix H's per-EPISODE figure, over-counted ~100x)
+  is replaced by the actual forward MACs of the two MLPs; tau-driven
+  episodes now reach the paper's D≈100-scale simulation counts.
+- Stale draft "§5.3" quote removed from `sparse_moe_triton.py`.
+
+### Changed
+
+- `broyden_fixed_point(root_b0_scale=…)`: paper Algorithm-1's B0=0.1*I is
+  selectable; default stays 1.0*I with a measured justification (0.1*I
+  diverges on fast contractions, contradicting the paper's own 97.3%
+  convergence claim; Gemma-scale routes to Anderson regardless).
+- `tests/test_cts_full_episode.py`: wall-clock budget assert allows the
+  documented soft-cap overshoot now that tau no longer halts the test
+  configuration early.
+
+---
+
+## [unreleased] — Jul 17: Episode hot-path optimization (behaviour-equivalent, 26.7x)
+
+Full experiment write-up with raw per-episode JSON:
+`results/perf_opt/BENCHMARK.md`. Verified behaviour-equivalent against a
+pinned pre-optimization worktree (identical answers, tree sizes, sim
+counts, and DEQ iteration counts across the equivalence matrix).
+
+### Changed
+
+- `cts/deq/broyden_forward.py` — dense L-Broyden now maintains the
+  **inverse** Jacobian `H = B^-1` via Sherman-Morrison (O(n^2)/iteration,
+  in-place `addr_` rank-1 update) instead of storing `B` and calling
+  `torch.linalg.solve` (O(n^3)) every iteration; `jacobian_state` now
+  genuinely stores the inverse Jacobian that Remark 2 and the
+  `inv_jacobian` field names always described. Anderson path builds its
+  difference history incrementally. `broyden_fixed_point` runs under
+  `torch.no_grad()` — no code path differentiates through the solver, and
+  the retained autograd graph (~67 MB per dense iteration) previously
+  OOM-killed tau-driven episodes on a 16 GB host.
+- `cts/mcts/cts_episode.py` — parent context encoded **once per leaf
+  expansion** and shared across all W sibling `transition()` calls (new
+  optional `context=` parameter, back-compatible); terminal best-node
+  selection reuses expansion-time critic values.
+- `cts/deq/transition.py` — MAC LUT cached at module level; single-sync
+  flops reduction (bit-identical accumulation).
+- `REVIEWER_FAQ.md` — cite `LIMITATIONS.md` "section 15" instead of
+  "§15" so `test_paper_section_alignment` no longer reads it as a paper
+  section family.
+
+### Added
+
+- `cts/types.py::TreeNode.critic_value` — expansion-time V_psi cache.
+- `scripts/bench_episode_perf.py` — CPU episode benchmark harness.
+- `results/perf_opt/` — BENCHMARK.md + 11 raw measurement JSONs
+  (controlled workload 20.63 s -> 0.77 s, 3 interleaved rounds; full
+  eval-protocol episode host-OOM -> 9.11 s).
+- `tests/test_broyden_sherman_morrison.py` — regression pin: the
+  Sherman-Morrison path is iterate-equivalent to the classic
+  solve-against-B formulation (root parity exact; inherited solves within
+  one iteration), plus an honest scope note on warm-start behaviour for
+  tiny synthetic contractions.
+
+---
+
 ## [unreleased] — May 19: CPU-safe baseline wiring (background Stage 2 unaffected)
 
 While the 10k-step Stage 2 PPO retrain runs in the background, the

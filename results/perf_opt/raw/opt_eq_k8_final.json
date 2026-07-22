@@ -1,0 +1,49 @@
+{
+  "mean_wall_s": 0.09175444866665809,
+  "config": {
+    "episodes": 3,
+    "K": 8,
+    "d": 32,
+    "W": 3,
+    "max_iter": 20,
+    "tau": 20000000000000.0,
+    "sims": 6,
+    "wall": null,
+    "json_out": "/tmp/claude-0/-home-user-Cognitive-Tree-Search-2-/0147b517-aa9e-552c-8527-0241f656de5a/scratchpad/results/opt_eq_k8_final.json"
+  },
+  "episodes": [
+    {
+      "episode": 0,
+      "wall_s": 0.096,
+      "answer": "answer=-0.058422",
+      "tree_size": 19,
+      "max_depth": 4,
+      "sim_count": 6,
+      "total_mac": 1836128765498.5237,
+      "total_iterations": 174,
+      "z_star_sha": "6276b5f59f0c6980"
+    },
+    {
+      "episode": 1,
+      "wall_s": 0.091,
+      "answer": "answer=-0.055881",
+      "tree_size": 19,
+      "max_depth": 3,
+      "sim_count": 6,
+      "total_mac": 1852778494343.1484,
+      "total_iterations": 179,
+      "z_star_sha": "688b36701e967aa0"
+    },
+    {
+      "episode": 2,
+      "wall_s": 0.088,
+      "answer": "answer=-0.058571",
+      "tree_size": 19,
+      "max_depth": 4,
+      "sim_count": 6,
+      "total_mac": 1836069375309.199,
+      "total_iterations": 173,
+      "z_star_sha": "a3e9e53790e998ca"
+    }
+  ]
+}

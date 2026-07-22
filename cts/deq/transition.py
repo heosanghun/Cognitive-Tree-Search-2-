@@ -61,11 +61,20 @@ def _routing_sparse(zz: "torch.Tensor", w_g: "torch.Tensor", nu_temp: float, top
 from cts.types import NuVector, RuntimeBudgetState, TransitionResult
 
 
+_MAC_LUT_CACHE: Optional[list] = None
+
+
 def _load_mac_lut() -> list:
-    p = Path(__file__).resolve().parent.parent / "routing" / "lut_mac.json"
-    with p.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    return list(data["mac_per_module"])
+    # Cached: this sits in the DEQ transition hot path (called once per
+    # branch per MCTS simulation) and the LUT on disk never changes
+    # within a process.
+    global _MAC_LUT_CACHE
+    if _MAC_LUT_CACHE is None:
+        p = Path(__file__).resolve().parent.parent / "routing" / "lut_mac.json"
+        with p.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        _MAC_LUT_CACHE = list(data["mac_per_module"])
+    return _MAC_LUT_CACHE
 
 
 def transition(
@@ -90,6 +99,8 @@ def transition(
     parent_inv_jacobian: Optional[torch.Tensor] = None,
     parent_z_star: Optional[torch.Tensor] = None,
     noise_sigma: float = 0.02,
+    context: Optional[torch.Tensor] = None,
+    faiss_add: bool = True,
 ) -> TransitionResult:
     """One KV-cache-free transition using DEQ (paper §4.2).
 
@@ -97,6 +108,19 @@ def transition(
       Line 6:  {z_tilde_w} <- z*_s + epsilon_w
       Line 9:  fallback: revert to parent z*, Q <- 0
       Line 10: L-Broyden-Update inherits parent inverse Jacobian
+
+    ``context``: optional precomputed ``backbone.encode_context(parent_text)``
+    result. All W sibling transitions share the same parent text, so the
+    episode loop encodes once per leaf expansion and passes it here instead
+    of re-running the (full-model) context encoder per branch. ``None``
+    preserves the historical behaviour of encoding internally.
+
+    ``faiss_add``: when False, the converged z* is NOT registered into
+    ``faiss_context`` by this call; the caller performs the adds itself.
+    Paper Algorithm 1 separates the W parallel solves (lines 7-15) from the
+    sequential ``F.add(z*_w)`` loop (lines 16-18), so sibling branches within
+    one expansion must not retrieve each other's freshly added latents —
+    ``cts_full_episode`` passes False and adds after the branch loop.
     """
     if isinstance(backbone, nn.Module):
         device = next(backbone.parameters()).device
@@ -117,7 +141,8 @@ def transition(
         z0 = init_z0(K, d, device, gen)
         z0 = add_exploration_noise(z0, nu.nu_expl, gen)
 
-    context = backbone.encode_context(parent_text)
+    if context is None:
+        context = backbone.encode_context(parent_text)
     if context.dim() == 1:
         context = context.unsqueeze(0)
     context = context.to(device=device, dtype=torch.float32)
@@ -160,8 +185,11 @@ def transition(
     with torch.no_grad():
         alpha = routing_weights(z_star, w_g, nu.nu_temp)
         mw = alpha if routing_mode == "dense" else sparse_module_weights(alpha, top_k)
-        for i in range(len(mw)):
-            flops += float(mw[i].item()) * macs[i] * nu.nu_act
+        # Single host sync instead of one .item() per module; the Python
+        # float accumulation below is bit-identical to the historical
+        # per-element loop.
+        for wi, mi in zip(mw.tolist(), macs):
+            flops += float(wi) * mi * nu.nu_act
     budget.flops_spent_step = flops
     budget.mac_accumulated += flops
 
@@ -199,7 +227,7 @@ def transition(
     if budget.mac_accumulated > tau_flops_budget * nu.nu_act:
         solver_stats["act_halt"] = True
 
-    if faiss_context is not None:
+    if faiss_context is not None and faiss_add:
         faiss_context.add(z_star)
 
     if hasattr(backbone, "decode_from_z_star"):
@@ -315,8 +343,8 @@ def transition_batch(
         with torch.no_grad():
             alpha = routing_weights(z_star, w_g, nu.nu_temp)
             mw = alpha if routing_mode == "dense" else sparse_module_weights(alpha, top_k)
-            for i in range(len(mw)):
-                flops += float(mw[i].item()) * macs[i] * nu.nu_act
+            for wi, mi in zip(mw.tolist(), macs):
+                flops += float(wi) * mi * nu.nu_act
         b.flops_spent_step = flops
         b.mac_accumulated += flops
 

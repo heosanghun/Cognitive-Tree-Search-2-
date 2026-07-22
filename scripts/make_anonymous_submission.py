@@ -42,6 +42,12 @@ OUT_ZIP = REPO_ROOT / "anonymous_submission_neurips2026.zip"
 EXCLUDE_TOP = {
     ".git", ".github", ".vscode", ".cursor", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", ".ipynb_checkpoints",
+    # Author-side agent rules (SSH/GPU-server allocation policy). Not part
+    # of the reviewer-facing artifact, and its content references the
+    # authors' local infrastructure — must never ship in the anonymous ZIP
+    # (also enforced by tests/test_anon_zip_byte_invariants.py's
+    # no-unexpected-dotfiles invariant).
+    ".agents",
     "artifacts", ".hf_cache", "gemma-4-E4B", "gemma-4-E4B-it",
     "data", "doc", "terminals",
     # Author-facing run logs may contain Windows redirects, GPU device

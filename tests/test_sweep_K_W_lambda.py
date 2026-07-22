@@ -414,6 +414,7 @@ def test_run_sweep_K_with_stub_writes_jsonl_and_markdown(
     def _stub_run(
         method: str, problems: list, cfg: dict, device: str, model_dir,
         *, benchmark: str = "math500", seed: int = 0, nu_trace_dir=None,
+        model_name=None, **_future_kwargs,
     ):
         # Deterministic per-(K, seed) score: K=2 → 0.4, K=3 → 0.6.
         # We can't see K directly here because the stub does not call
@@ -451,6 +452,21 @@ def test_run_sweep_K_with_stub_writes_jsonl_and_markdown(
         return scores
 
     monkeypatch.setattr(eval_mod, "_run_cts_on_problems", _stub_run)
+
+    # Hermetic data load: the launcher's aime path loads
+    # data/aime/test.jsonl before ever reaching the stub above, but that
+    # dataset is intentionally not committed (fetched by
+    # scripts/download_all_benchmarks.py) — so on CI and fresh clones the
+    # load raised FileNotFoundError and the sweep emitted error rows
+    # instead of 6 score rows. This test exercises launcher mechanics
+    # only (per its own docstring), so stub the sample loader too.
+    import cts.eval.math500 as math500_mod
+
+    def _stub_load_samples(path, limit=None):
+        n = int(limit) if limit else 3
+        return [{"problem": f"stub problem {i}", "answer": str(i)} for i in range(n)]
+
+    monkeypatch.setattr(math500_mod, "load_math_samples", _stub_load_samples)
 
     from scripts import run_sweep_K as sweep_mod
 

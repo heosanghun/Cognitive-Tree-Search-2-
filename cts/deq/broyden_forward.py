@@ -16,6 +16,21 @@ import torch
 
 MAX_DENSE_N = 8192
 
+# Root Broyden Jacobian estimate B_0 = ROOT_B0_SCALE * I (the dense solver
+# maintains H = B^{-1}, so H_0 = (1/ROOT_B0_SCALE) * I).
+#
+# Paper Algorithm 1 line 1 specifies "B_0 <- 0.1*I", which is near-exact for
+# the paper's operating regime (spectral radius gamma ~ 0.92, Table 7, where
+# the Jacobian of F(z) = z - phi(z) is ~ 0.08*I). For fast contractions
+# (gamma ~ 0.5, e.g. the CPU mock backbone used in CI) H_0 = 10*I overshoots
+# and the solver fails to converge, contradicting the paper's own 97.3%
+# convergence claim (Table 12). The default therefore stays at the robust
+# identity estimate; pass ``root_b0_scale=0.1`` to ``broyden_fixed_point``
+# to reproduce the paper's Algorithm-1 initialisation in its slow-contraction
+# regime. (At Gemma scale, n > MAX_DENSE_N routes to Anderson acceleration,
+# which maintains no B at all — a documented implementation divergence.)
+ROOT_B0_SCALE = 1.0
+
 
 @dataclass
 class BroydenInfo:
@@ -112,8 +127,24 @@ def _dense_broyden(
     fp32_buffer: bool,
     memory_limit: int,
     is_root: bool,
+    root_b0_scale: float = ROOT_B0_SCALE,
 ) -> Tuple[torch.Tensor, BroydenInfo]:
-    """Dense Broyden for small n. Proven stable."""
+    """Dense Broyden for small n. Proven stable.
+
+    Maintains the *inverse* Jacobian approximation ``H = B^{-1}`` directly via
+    the Sherman–Morrison identity, so each iteration costs O(n^2) (one matvec
+    + one rank-1 update) instead of the O(n^3) ``torch.linalg.solve`` against
+    an explicit ``B``. In exact arithmetic the iterates are identical to the
+    classic good-Broyden update ``B' = B + (y - B s) s^T / (s^T s)``:
+
+        step = -H @ F(z)                       ==  solve(B, -F(z))
+        H'   = H - (H y - s)(s^T H) / (s^T H y)  ==  (B')^{-1}
+
+    ``jacobian_state`` therefore now stores H (the actual inverse Jacobian,
+    matching the paper's "inverse Jacobian inheritance" Remark 2 and the
+    ``inv_jacobian`` / ``parent_inv_jacobian`` field names); producers and
+    consumers were updated together, so inheritance stays self-consistent.
+    """
     orig_shape = z0.shape
     device = z0.device
     compute_dtype = torch.float32 if fp32_buffer else z0.dtype
@@ -129,45 +160,46 @@ def _dense_broyden(
     residuals: List[float] = []
 
     if parent_inv_jacobian is not None and parent_inv_jacobian.shape == (n, n):
-        B = parent_inv_jacobian.to(device=device, dtype=compute_dtype).clone()
+        H = parent_inv_jacobian.to(device=device, dtype=compute_dtype).clone()
     else:
-        B = torch.eye(n, device=device, dtype=compute_dtype)
-
-    update_s: List[torch.Tensor] = []
-    update_y: List[torch.Tensor] = []
+        # Root init H_0 = B_0^{-1} = (1/root_b0_scale)*I; see the
+        # ROOT_B0_SCALE module comment for the paper Algorithm-1 relation.
+        H = torch.eye(n, device=device, dtype=compute_dtype) * (1.0 / root_b0_scale)
 
     for it in range(max_iter):
         res = float(Fv.norm().item())
         residuals.append(res)
         if res < tol:
             z_out = z.view(orig_shape).to(z0.dtype)
-            info = BroydenInfo(it + 1, res, True, residuals, jacobian_state=B.detach().clone())
+            info = BroydenInfo(it + 1, res, True, residuals, jacobian_state=H.detach())
             if _global_stats is not None:
                 _global_stats.update(info, is_root=is_root)
             return z_out, info
 
-        try:
-            step = torch.linalg.solve(B, -Fv)
-        except RuntimeError:
-            step = -Fv
+        step = -(H @ Fv)
 
         z_new = z + step
         F_new = F(z_new)
         s = z_new - z
         y = F_new - Fv
-        denom = torch.dot(s, s).clamp_min(1e-12)
 
-        if len(update_s) >= memory_limit:
-            update_s.pop(0)
-            update_y.pop(0)
-        update_s.append(s.clone())
-        update_y.append(y.clone())
-
-        B = B + torch.outer(y - B @ s, s) / denom
+        # Sherman–Morrison update of H = B^{-1} for the good-Broyden rank-1
+        # update of B. Denominator s^T H y == s^T s + s^T H (y - B s); a
+        # near-zero value marks a singular update, where we keep H unchanged
+        # (the analogue of the old solve-failure fallback). H is private to
+        # this solve (cloned/created above, cloned again on inheritance), so
+        # the rank-1 update is applied in place to avoid materialising a
+        # second n x n temporary per iteration.
+        Hy = H @ y
+        sH = H.t() @ s
+        denom = torch.dot(sH, y)
+        d_abs = float(denom.abs().item())
+        if d_abs > 1e-12:
+            H.addr_(Hy - s, sH, alpha=-1.0 / float(denom.item()))
         z, Fv = z_new, F_new
 
     z_out = z.view(orig_shape).to(z0.dtype)
-    info = BroydenInfo(max_iter, float(Fv.norm().item()), False, residuals, jacobian_state=B.detach().clone())
+    info = BroydenInfo(max_iter, float(Fv.norm().item()), False, residuals, jacobian_state=H.detach())
     if _global_stats is not None:
         _global_stats.update(info, is_root=is_root)
     return z_out, info
@@ -196,6 +228,12 @@ def _anderson_broyden(
     residuals: List[float] = []
     x_hist: List[torch.Tensor] = []
     f_hist: List[torch.Tensor] = []
+    # Consecutive-difference history maintained incrementally so each
+    # iteration appends one new diff instead of rebuilding the full
+    # [m-1, n] stacks from x_hist/f_hist (identical values, O(n) instead
+    # of O(m*n) copies per iteration).
+    dF_hist: List[torch.Tensor] = []
+    dX_hist: List[torch.Tensor] = []
     beta = 1.0
 
     for it in range(max_iter):
@@ -210,19 +248,24 @@ def _anderson_broyden(
                 _global_stats.update(info, is_root=is_root)
             return z_out, info
 
+        if x_hist:
+            dX_hist.append(z - x_hist[-1])
+            dF_hist.append(fz - f_hist[-1])
         x_hist.append(z.clone())
         f_hist.append(fz.clone())
         if len(x_hist) > memory_limit + 1:
             x_hist.pop(0)
             f_hist.pop(0)
+            dX_hist.pop(0)
+            dF_hist.pop(0)
 
         m = len(f_hist)
         if m < 2:
             z = beta * fz + (1 - beta) * z
             continue
 
-        dF = torch.stack([f_hist[i] - f_hist[i - 1] for i in range(1, m)], dim=0)  # [m-1, n]
-        dX = torch.stack([x_hist[i] - x_hist[i - 1] for i in range(1, m)], dim=0)  # [m-1, n]
+        dF = torch.stack(dF_hist, dim=0)  # [m-1, n]
+        dX = torch.stack(dX_hist, dim=0)  # [m-1, n]
 
         gram = dF @ dF.t()
         gram += 1e-6 * torch.eye(m - 1, device=device, dtype=compute_dtype)
@@ -255,6 +298,7 @@ def broyden_fixed_point(
     parent_inv_jacobian: Optional[torch.Tensor] = None,
     fp32_buffer: bool = True,
     memory_limit: int = 16,
+    root_b0_scale: float = ROOT_B0_SCALE,
 ) -> Tuple[torch.Tensor, BroydenInfo]:
     """L-Broyden fixed-point solver (paper §5.2).
 
@@ -263,19 +307,30 @@ def broyden_fixed_point(
     Anderson: O(m*n) memory, uses history of m steps, scalable.
 
     Paper rank = 16 (memory_limit default).
+
+    The solve runs under ``torch.no_grad()``: no CTS code path differentiates
+    through the solver iterations (Stage 1 trains via the IFT surrogate loss
+    on a single explicit ``phi`` step, Stage 2 PPO detaches ``z_star`` before
+    use — that is the whole point of the DEQ/IFT formulation). Building the
+    autograd graph here retained every per-iteration Jacobian/iterate tensor
+    for the lifetime of the episode tree (~67 MB per dense iteration at
+    n = 4096), which is what made long tau-driven episodes on the mock
+    backbone run out of host memory.
     """
     n = z0.numel()
     is_root = parent_inv_jacobian is None
 
-    if n <= MAX_DENSE_N:
-        return _dense_broyden(
-            phi, z0, tol, max_iter, parent_inv_jacobian,
-            fp32_buffer, memory_limit, is_root,
-        )
-    else:
-        return _anderson_broyden(
-            phi, z0, tol, max_iter, fp32_buffer, memory_limit, is_root,
-        )
+    with torch.no_grad():
+        if n <= MAX_DENSE_N:
+            return _dense_broyden(
+                phi, z0, tol, max_iter, parent_inv_jacobian,
+                fp32_buffer, memory_limit, is_root,
+                root_b0_scale=root_b0_scale,
+            )
+        else:
+            return _anderson_broyden(
+                phi, z0, tol, max_iter, fp32_buffer, memory_limit, is_root,
+            )
 
 
 def broyden_fixed_point_batch(

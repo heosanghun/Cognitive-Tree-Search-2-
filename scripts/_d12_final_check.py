@@ -251,8 +251,23 @@ def section_zip() -> list[_Result]:
     ok, detail = _try_subprocess([sys.executable, "scripts/make_anonymous_submission.py"])
     out.append(_Result("anonymous ZIP rebuild", ok, detail))
     if ok:
-        ok2, detail2 = _try_subprocess([sys.executable, "scripts/_audit_anon_zip.py"])
-        out.append(_Result("anonymous ZIP audit", ok2, detail2))
+        audit_script = ROOT / "scripts" / "_audit_anon_zip.py"
+        if not audit_script.is_file():
+            # README ("Reviewers" note): the author-side leak detector is
+            # deliberately NOT distributed — it carries the very
+            # identity-leak regex patterns it detects. Its absence is
+            # documented policy, not a broken build; the reviewer-side
+            # equivalent runs in section_reviewer_audit() below and the
+            # structural ZIP invariants run in section_byte_invariants().
+            out.append(_Result(
+                "anonymous ZIP audit", True,
+                "skipped: author-side detector intentionally not distributed "
+                "(see README reviewer note); reviewer-side audit + byte "
+                "invariants cover the shipped surface",
+            ))
+        else:
+            ok2, detail2 = _try_subprocess([sys.executable, "scripts/_audit_anon_zip.py"])
+            out.append(_Result("anonymous ZIP audit", ok2, detail2))
     else:
         out.append(_Result("anonymous ZIP audit", False, "skipped (build failed)"))
     return out

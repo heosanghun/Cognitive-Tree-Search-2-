@@ -146,6 +146,12 @@ class TreeNode:
     # start. Populated only on the dense-Broyden path (n <= MAX_DENSE_N);
     # remains None on the Anderson path used by full Gemma-scale tensors.
     inv_jacobian_state: Optional[torch.Tensor] = None
+    # Neuro-Critic V_psi(z*) computed when this node was expanded (Algorithm 1
+    # line 12, before any prune override). Cached so the terminal best-node
+    # selection (line 18) can reuse it instead of re-running the critic over
+    # every tree node; the critic is deterministic on identical input, so the
+    # cached value is bit-identical to a recomputation.
+    critic_value: Optional[float] = None
 
     def __post_init__(self) -> None:
         if not self.mcts_Q:
